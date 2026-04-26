@@ -18,7 +18,7 @@ MAX_MEMBER = 20
 os.makedirs(MEMBERS_DIR, exist_ok=True)
 
 # =========================
-# ローマ字マップ（最新版）
+# ローマ字マップ（あなたの確定版）
 # =========================
 ROMAJI_MAP = {
     "矢田 萌華": "moeka_yada","森平 麗心": "urumi_morihira","増田 三莉音": "mirine_masuda",
@@ -117,7 +117,7 @@ def save_rss(path, items, title):
         f.write(build_rss(items, title))
 
 # =========================
-# スクレイピング（完全修正版）
+# スクレイピング（最終安定版）
 # =========================
 async def scrape():
     print("アクセス中...")
@@ -127,33 +127,31 @@ async def scrape():
         page = await browser.new_page()
 
         await page.goto(BASE_URL, wait_until="networkidle")
-        await page.wait_for_selector("li", timeout=60000)
+        await page.wait_for_selector("div[class*='item']", timeout=60000)
 
         # スクロール
-        for _ in range(5):
-            await page.mouse.wheel(0, 3000)
+        for _ in range(6):
+            await page.mouse.wheel(0, 4000)
             await asyncio.sleep(1)
 
         items = []
 
-        links = await page.query_selector_all("a[href*='/diary/detail/']")
+        cards = await page.query_selector_all("div[class*='item']")
 
-        for link in links:
+        for card in cards:
             try:
-                href = await link.get_attribute("href")
-                title = await link.inner_text()
-
-                parent = await link.evaluate_handle("el => el.closest('li')")
-                parent = parent.as_element()
-
-                if not parent:
+                link_el = await card.query_selector("a[href*='/diary/detail/']")
+                if not link_el:
                     continue
 
-                member_el = await parent.query_selector("p")
+                href = await link_el.get_attribute("href")
+                title = await link_el.inner_text()
+
+                member_el = await card.query_selector("p")
                 member = await member_el.inner_text() if member_el else "unknown"
                 member = member.replace("　", " ").strip()
 
-                img_el = await parent.query_selector("img")
+                img_el = await card.query_selector("img")
                 img_url = ""
                 if img_el:
                     img_url = await img_el.get_attribute("src") or ""
