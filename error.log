@@ -1,0 +1,10 @@
+Traceback (most recent call last):
+  File "/Users/dig/nogi-rss/main.py", line 259, in <module>
+    asyncio.run(main())
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/dig/nogi-rss/main.py", line 246, in main
+    generate_index(members)
+NameError: name 'generate_index' is not defined
