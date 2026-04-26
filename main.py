@@ -101,7 +101,7 @@ def build_rss(items, title, feed_path):
 
     rss_items = ""
     for item in items:
-        img = f'<img src="{item["image"]}" /><br>' if item["image"] else ""
+        img = f'<img src="{item.get("image", "")}" /><br>' if item.get("image") else ""
 
         rss_items += f"""
 <item>
