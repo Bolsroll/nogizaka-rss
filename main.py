@@ -130,6 +130,8 @@ async def scrape():
 
                 href = await link.get_attribute("href")
                 title = await link.text_content()
+                title_lines = (title_raw or "").strip().split("\n")
+                title = title_lines[0].strip() if title_lines else ""
 
                 if not href:
                     continue
