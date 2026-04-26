@@ -14,19 +14,18 @@ MEMBER_DIR = "members"
 os.makedirs(MEMBER_DIR, exist_ok=True)
 
 # ----------------------
-# XMLエスケープ（完全版）
+# エスケープ
 # ----------------------
 def esc(text):
     return html.escape(str(text or ""), quote=True)
 
-# CDATA（タイトルなど用：&問題を完全回避）
 def cdata(text):
     t = str(text or "")
     t = t.replace("]]>", "]]]]><![CDATA[>")
     return f"<![CDATA[{t}]]>"
 
 # ----------------------
-# データ読み込み
+# データ
 # ----------------------
 def load_data():
     if not os.path.exists(DATA_FILE):
@@ -37,15 +36,12 @@ def load_data():
     except:
         return []
 
-# ----------------------
-# データ保存
-# ----------------------
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ----------------------
-# 日付パース
+# 日付
 # ----------------------
 def parse_date(text):
     if not text:
@@ -66,9 +62,6 @@ def parse_date(text):
 
     return datetime.now().isoformat()
 
-# ----------------------
-# 記事ページから日付取得
-# ----------------------
 async def fetch_date(context, url):
     page = await context.new_page()
     try:
@@ -103,16 +96,10 @@ async def scrape():
         )
 
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
+            user_agent="Mozilla/5.0"
         )
 
         page = await context.new_page()
-
-        await page.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', {
-            get: () => undefined
-        })
-        """)
 
         await page.goto(BASE_URL, wait_until="networkidle")
         await page.wait_for_timeout(3000)
@@ -129,7 +116,9 @@ async def scrape():
                 link = entries.nth(i)
 
                 href = await link.get_attribute("href")
-                title = await link.text_content()
+
+                # 🔥 タイトル修正（ここ重要）
+                title_raw = await link.text_content()
                 title_lines = (title_raw or "").strip().split("\n")
                 title = title_lines[0].strip() if title_lines else ""
 
@@ -151,7 +140,7 @@ async def scrape():
                 date = await fetch_date(context, url_full)
 
                 items.append({
-                    "title": (title or "").strip(),
+                    "title": title,
                     "link": url_full,
                     "member": name,
                     "date": date
@@ -166,7 +155,7 @@ async def scrape():
     return items
 
 # ----------------------
-# RSS生成（完全安全版）
+# RSS生成
 # ----------------------
 def generate_rss(items):
     rss = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -193,7 +182,7 @@ def generate_rss(items):
         f.write(rss)
 
 # ----------------------
-# メンバー別RSS
+# メンバーRSS
 # ----------------------
 def generate_member_rss(items):
     members = {}
