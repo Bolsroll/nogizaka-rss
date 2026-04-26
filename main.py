@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import html
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from playwright.async_api import async_playwright
@@ -11,6 +12,12 @@ FEED_FILE = "feed.xml"
 MEMBER_DIR = "members"
 
 os.makedirs(MEMBER_DIR, exist_ok=True)
+
+# ----------------------
+# XMLエスケープ（最重要）
+# ----------------------
+def esc(text):
+    return html.escape(text or "", quote=True)
 
 # ----------------------
 # データ読み込み
@@ -32,6 +39,28 @@ def save_data(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 # ----------------------
+# 日付パース
+# ----------------------
+def parse_date(text):
+    if not text:
+        return datetime.now().isoformat()
+
+    text = text.strip()
+
+    for fmt in [
+        "%Y.%m.%d %H:%M",
+        "%Y.%m.%d",
+        "%Y/%m/%d %H:%M",
+        "%Y/%m/%d"
+    ]:
+        try:
+            return datetime.strptime(text, fmt).isoformat()
+        except:
+            continue
+
+    return datetime.now().isoformat()
+
+# ----------------------
 # 記事ページから日付取得
 # ----------------------
 async def fetch_date(context, url):
@@ -40,13 +69,13 @@ async def fetch_date(context, url):
         await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(1500)
 
-        # パターン①（よくある）
+        # 優先：timeタグ
         el = page.locator("time")
         if await el.count():
             text = await el.first.text_content()
             return parse_date(text)
 
-        # パターン②（fallback）
+        # fallback
         el = page.locator("p")
         if await el.count():
             text = await el.first.text_content()
@@ -57,28 +86,10 @@ async def fetch_date(context, url):
     finally:
         await page.close()
 
-    # fallback（取得失敗）
     return datetime.now().isoformat()
 
 # ----------------------
-# 日付パース
-# ----------------------
-def parse_date(text):
-    try:
-        text = text.strip()
-
-        # 例: 2024.04.20 12:34
-        return datetime.strptime(text, "%Y.%m.%d %H:%M").isoformat()
-
-    except:
-        try:
-            # 例: 2024/04/20
-            return datetime.strptime(text, "%Y/%m/%d").isoformat()
-        except:
-            return datetime.now().isoformat()
-
-# ----------------------
-# スクレイピング（本体）
+# スクレイピング
 # ----------------------
 async def scrape():
     print("アクセス中...")
@@ -133,7 +144,7 @@ async def scrape():
 
                 url_full = "https://www.nogizaka46.com" + href
 
-                # 🔥 ここが追加：記事ページから日付取得
+                # 日付取得
                 date = await fetch_date(context, url_full)
 
                 items.append({
@@ -152,7 +163,7 @@ async def scrape():
     return items
 
 # ----------------------
-# RSS生成（Feedly対応）
+# RSS生成（Feedly完全対応）
 # ----------------------
 def generate_rss(items):
     rss = '<?xml version="1.0" encoding="UTF-8"?>\n'
@@ -166,11 +177,11 @@ def generate_rss(items):
         pubdate = format_datetime(dt)
 
         rss += "<item>\n"
-        rss += f"<title>{item['title']}</title>\n"
-        rss += f"<link>{item['link']}</link>\n"
-        rss += f"<guid>{item['link']}</guid>\n"
+        rss += f"<title>{esc(item['title'])}</title>\n"
+        rss += f"<link>{esc(item['link'])}</link>\n"
+        rss += f"<guid>{esc(item['link'])}</guid>\n"
         rss += f"<pubDate>{pubdate}</pubDate>\n"
-        rss += f"<description>{item['member']}</description>\n"
+        rss += f"<description>{esc(item['member'])}</description>\n"
         rss += "</item>\n"
 
     rss += "</channel>\n</rss>"
@@ -188,17 +199,17 @@ def generate_member_rss(items):
         members.setdefault(item["member"], []).append(item)
 
     for member, posts in members.items():
-        safe_name = member.replace(" ", "_")
+        safe_name = member.replace(" ", "_").replace("/", "_")
         path = f"{MEMBER_DIR}/{safe_name}.xml"
 
         rss = '<?xml version="1.0" encoding="UTF-8"?>\n'
         rss += '<rss version="2.0">\n<channel>\n'
-        rss += f'<title>{member} Blog</title>\n'
+        rss += f'<title>{esc(member)} Blog</title>\n'
 
         for item in posts:
             rss += "<item>\n"
-            rss += f"<title>{item['title']}</title>\n"
-            rss += f"<link>{item['link']}</link>\n"
+            rss += f"<title>{esc(item['title'])}</title>\n"
+            rss += f"<link>{esc(item['link'])}</link>\n"
             rss += "</item>\n"
 
         rss += "</channel>\n</rss>"
