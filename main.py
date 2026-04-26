@@ -14,10 +14,16 @@ MEMBER_DIR = "members"
 os.makedirs(MEMBER_DIR, exist_ok=True)
 
 # ----------------------
-# XMLエスケープ（最重要）
+# XMLエスケープ（完全版）
 # ----------------------
 def esc(text):
-    return html.escape(text or "", quote=True)
+    return html.escape(str(text or ""), quote=True)
+
+# CDATA（タイトルなど用：&問題を完全回避）
+def cdata(text):
+    t = str(text or "")
+    t = t.replace("]]>", "]]]]><![CDATA[>")
+    return f"<![CDATA[{t}]]>"
 
 # ----------------------
 # データ読み込み
@@ -67,19 +73,15 @@ async def fetch_date(context, url):
     page = await context.new_page()
     try:
         await page.goto(url, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(1200)
 
-        # 優先：timeタグ
         el = page.locator("time")
         if await el.count():
-            text = await el.first.text_content()
-            return parse_date(text)
+            return parse_date(await el.first.text_content())
 
-        # fallback
         el = page.locator("p")
         if await el.count():
-            text = await el.first.text_content()
-            return parse_date(text)
+            return parse_date(await el.first.text_content())
 
     except:
         pass
@@ -144,7 +146,6 @@ async def scrape():
 
                 url_full = "https://www.nogizaka46.com" + href
 
-                # 日付取得
                 date = await fetch_date(context, url_full)
 
                 items.append({
@@ -163,30 +164,30 @@ async def scrape():
     return items
 
 # ----------------------
-# RSS生成（Feedly完全対応）
+# RSS生成（完全安全版）
 # ----------------------
 def generate_rss(items):
     rss = '<?xml version="1.0" encoding="UTF-8"?>\n'
     rss += '<rss version="2.0">\n<channel>\n'
-    rss += '<title>Nogizaka Blog</title>\n'
-    rss += '<link>https://www.nogizaka46.com/</link>\n'
-    rss += '<description>Nogizaka Member Blog</description>\n'
+    rss += f'<title>{cdata("Nogizaka Blog")}</title>\n'
+    rss += f'<link>{esc("https://www.nogizaka46.com/")}</link>\n'
+    rss += f'<description>{cdata("Nogizaka Member Blog")}</description>\n'
 
     for item in items:
         dt = datetime.fromisoformat(item["date"]).astimezone(timezone.utc)
         pubdate = format_datetime(dt)
 
         rss += "<item>\n"
-        rss += f"<title>{esc(item['title'])}</title>\n"
+        rss += f"<title>{cdata(item['title'])}</title>\n"
         rss += f"<link>{esc(item['link'])}</link>\n"
         rss += f"<guid>{esc(item['link'])}</guid>\n"
-        rss += f"<pubDate>{pubdate}</pubDate>\n"
-        rss += f"<description>{esc(item['member'])}</description>\n"
+        rss += f"<pubDate>{esc(pubdate)}</pubDate>\n"
+        rss += f"<description>{cdata(item['member'])}</description>\n"
         rss += "</item>\n"
 
     rss += "</channel>\n</rss>"
 
-    with open(FEED_FILE, "w") as f:
+    with open(FEED_FILE, "w", encoding="utf-8") as f:
         f.write(rss)
 
 # ----------------------
@@ -204,17 +205,17 @@ def generate_member_rss(items):
 
         rss = '<?xml version="1.0" encoding="UTF-8"?>\n'
         rss += '<rss version="2.0">\n<channel>\n'
-        rss += f'<title>{esc(member)} Blog</title>\n'
+        rss += f'<title>{cdata(member + " Blog")}</title>\n'
 
         for item in posts:
             rss += "<item>\n"
-            rss += f"<title>{esc(item['title'])}</title>\n"
+            rss += f"<title>{cdata(item['title'])}</title>\n"
             rss += f"<link>{esc(item['link'])}</link>\n"
             rss += "</item>\n"
 
         rss += "</channel>\n</rss>"
 
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(rss)
 
 # ----------------------
