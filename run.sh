@@ -5,12 +5,11 @@ cd /Users/dig/nogi-rss
 echo "=== START ==="
 date
 
-# 実行
 python3 main.py
 
-# Git反映
+# Git自動push
 git add .
-git commit -m "auto update"
+git commit -m "auto update" || echo "no changes"
 git push origin main
 
 echo "=== END ==="
