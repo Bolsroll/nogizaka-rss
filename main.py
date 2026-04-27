@@ -1,110 +1,201 @@
 import asyncio
 import os
+import json
 import re
-from datetime import datetime
 from playwright.async_api import async_playwright
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
 
-OUTPUT_DIR = "members"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+DATA_FILE = "data.json"
+MEMBER_DIR = "members"
 
-# メンバー辞書（必要に応じて追加）
-MEMBERS = {
-    "矢田 萌華": "moeka_yada",
-    "森平 麗心": "urumi_morihira",
-    "増田 三莉音": "mirine_masuda",
-}
+# --------------------------
+# 初期化
+# --------------------------
+os.makedirs(MEMBER_DIR, exist_ok=True)
 
-def sanitize(text):
-    return re.sub(r"\s+", " ", text).strip()
-
-def get_member_slug(name):
-    return MEMBERS.get(name, "unknown")
-
-async def scrape():
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
-
-        print("アクセス中...")
-        await page.goto(BASE_URL, timeout=60000)
-
-        # 🔥 最強待機（これが重要）
-        await page.wait_for_load_state("networkidle")
-
-        # 🔥 JS実行で直接取る（セレクタ崩れ対策）
-        items = await page.evaluate("""
-        () => {
-            const results = [];
-            document.querySelectorAll("a[href*='/diary/detail/']").forEach(a => {
-                const title = a.innerText;
-                const url = a.href;
-
-                // 親からメンバー名探す
-                let parent = a.closest("li, div");
-                let member = "unknown";
-
-                if (parent) {
-                    const nameEl = parent.querySelector("*");
-                    if (nameEl) member = nameEl.innerText;
-                }
-
-                results.push({title, url, member});
-            });
-            return results;
-        }
-        """)
-
-        await browser.close()
-        return items
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w") as f:
+        json.dump([], f)
 
 
-def save_member_feed(member, entries):
-    filename = os.path.join(OUTPUT_DIR, f"{member}.xml")
-
-    with open(filename, "w", encoding="utf-8") as f:
-        f.write("""<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
-<channel>
-""")
-        for e in entries:
-            f.write(f"""
-<item>
-<title>{e['title']}</title>
-<link>{e['url']}</link>
-<pubDate>{datetime.utcnow()}</pubDate>
-</item>
-""")
-        f.write("</channel></rss>")
+# --------------------------
+# データ
+# --------------------------
+def load_data():
+    with open(DATA_FILE, "r") as f:
+        return json.load(f)
 
 
-async def main():
-    items = await scrape()
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
-    print("取得数:", len(items))
 
-    if not items:
-        print("❌ 取得失敗")
-        return
+# --------------------------
+# 名前取得（最強安定版）
+# --------------------------
+async def get_member_name(page):
+    try:
+        await page.wait_for_selector("text=公式ブログ", timeout=10000)
 
-    grouped = {}
+        text = await page.locator("text=公式ブログ").inner_text()
+
+        m = re.search(r"(.+?)\s*公式ブログ", text)
+        if m:
+            return m.group(1).strip()
+
+        return "unknown"
+
+    except:
+        return "unknown"
+
+
+# --------------------------
+# スクレイピング
+# --------------------------
+async def scrape(page, context):
+    print("アクセス中...")
+
+    await page.goto(BASE_URL, timeout=60000)
+    await page.wait_for_timeout(3000)
+
+    links = await page.query_selector_all("a[href*='/diary/detail/']")
+
+    results = []
+
+    for link in links[:10]:
+        try:
+            href = await link.get_attribute("href")
+            if not href:
+                continue
+
+            url = "https://www.nogizaka46.com" + href
+
+            title = (await link.inner_text()).strip()
+
+            detail = await context.new_page()
+            await detail.goto(url, timeout=60000)
+            await detail.wait_for_timeout(2000)
+
+            # 日付
+            try:
+                date = await detail.locator("time").inner_text()
+            except:
+                date = "unknown"
+
+            # 名前
+            name = await get_member_name(detail)
+
+            print(f"取得: {title} / {name}")
+
+            results.append({
+                "title": title,
+                "url": url,
+                "date": date,
+                "member": name
+            })
+
+            await detail.close()
+
+        except Exception as e:
+            print("エラー:", e)
+
+    print("取得数:", len(results))
+    return results
+
+
+# --------------------------
+# 差分
+# --------------------------
+def diff(new, old):
+    old_urls = set(x["url"] for x in old)
+    return [x for x in new if x["url"] not in old_urls]
+
+
+# --------------------------
+# メンバー別保存
+# --------------------------
+def save_by_member(items):
+    for item in items:
+        name = item["member"] or "unknown"
+        safe = name.replace(" ", "").replace("/", "_")
+
+        path = os.path.join(MEMBER_DIR, f"{safe}.json")
+
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                data = json.load(f)
+        else:
+            data = []
+
+        data.insert(0, item)
+
+        with open(path, "w") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+# --------------------------
+# RSS生成
+# --------------------------
+def generate_rss(items):
+    rss_items = ""
 
     for item in items:
-        name = sanitize(item["member"])
-        slug = get_member_slug(name)
+        rss_items += f"""
+        <item>
+            <title>{item['title']}</title>
+            <link>{item['url']}</link>
+            <pubDate>{item['date']}</pubDate>
+        </item>
+        """
 
-        if slug not in grouped:
-            grouped[slug] = []
+    rss = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+<title>Nogizaka Blog</title>
+<link>{BASE_URL}</link>
+<description>乃木坂ブログRSS</description>
+{rss_items}
+</channel>
+</rss>
+"""
 
-        grouped[slug].append(item)
-
-    # 🔥 メンバー別保存
-    for slug, entries in grouped.items():
-        save_member_feed(slug, entries)
-
-    print("✅ RSS作成完了")
+    with open("rss.xml", "w") as f:
+        f.write(rss)
 
 
+# --------------------------
+# メイン
+# --------------------------
+async def main():
+    old_data = load_data()
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+
+        context = await browser.new_context()
+        page = await context.new_page()
+
+        new_items = await scrape(page, context)
+
+        new_only = diff(new_items, old_data)
+
+        print("新規:", len(new_only))
+
+        if new_only:
+            all_data = new_only + old_data
+            save_data(all_data)
+            save_by_member(new_only)
+            generate_rss(all_data)
+
+        await browser.close()
+
+    print("✅ 完全版RSS作成完了")
+
+
+# --------------------------
+# 実行
+# --------------------------
 if __name__ == "__main__":
     asyncio.run(main())
