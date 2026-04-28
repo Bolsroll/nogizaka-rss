@@ -9,9 +9,9 @@ LOCK_FILE = "running.lock"
 # =========================
 # ▼ 設定
 # =========================
-MEMBER_ID = "48008"
-START_PAGE = 2
-END_PAGE = 3
+MEMBER_ID = "55391"
+START_PAGE = 0
+END_PAGE = 2
 # =========================
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
