@@ -118,22 +118,48 @@ async def scrape(page, context):
             pass
 
         # ------------------
-        # 名前
+        # 名前（安定版・HTML直取り）
         # ------------------
         name = "unknown"
+
+        # ① プロフィール欄から取得（最優先）
         try:
-            lines = body_text.split("\n")
-            for line in lines:
-                if re.search(r"\d{4}\.\d{2}\.\d{2}", line) and "/" in line:
-                    parts = line.split("/")
-                    if len(parts) >= 2:
-                        candidate = clean_text(parts[1])
+            m = re.search(r'<p class="bd--prof__name">(.*?)</p>', html)
+            if m:
+                name = clean_text(m.group(1))
+        except:
+            pass
+
+        # ② titleから取得（フォールバック）
+        if name == "unknown":
+            try:
+                m = re.search(r"<title>(.*?)</title>", html, re.S)
+                if m:
+                    t = clean_text(m.group(1))
+
+                    # 「タイトル｜名前」形式
+                    if "｜" in t:
+                        name = t.split("｜")[-1].strip()
+
+                    # 「タイトル | 名前」形式
+                    elif "|" in t:
+                        name = t.split("|")[-1].strip()
+            except:
+                pass
+
+        # ③ 最終保険（bodyから抽出）
+        if name == "unknown":
+            try:
+                lines = body_text.split("\n")
+                for line in lines:
+                    if "公式ブログ" in line:
+                        candidate = re.sub(r"公式ブログ.*", "", line).strip()
                         candidate = re.sub(r"[^\wぁ-んァ-ン一-龥ー\s]", "", candidate)
                         if 0 < len(candidate) < 20:
                             name = candidate
                             break
-        except:
-            pass
+            except:
+                pass
 
         print(f"取得: {title} / {name} / {date}")
 
