@@ -10,13 +10,20 @@ LOCK_FILE = "running.lock"
 # ▼ 設定
 # =========================
 MEMBER_ID = "48008"
-START_PAGE = 0
-END_PAGE = 1
+START_PAGE = 2
+END_PAGE = 3
 # =========================
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
 OUTPUT_DIR = "members_archive_xml"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+# --------------------------
+# URL正規化（?以降を削除）
+# --------------------------
+def normalize_url(url):
+    return url.split("?")[0]
 
 
 # --------------------------
@@ -33,7 +40,6 @@ def load_members(csv_path="members.csv"):
                 continue
 
             member_id, jp_name, roma = parts
-
             jp_name = jp_name.replace(" ", "").replace("　", "")
 
             id_to_name[member_id] = jp_name
@@ -61,7 +67,7 @@ def parse_rss_pubdate(pub):
 
 
 # --------------------------
-# 既存XML読み込み（重複防止）
+# 既存XML読み込み
 # --------------------------
 def load_existing_items(path):
     items = []
@@ -104,7 +110,7 @@ async def main():
     print("名前:", MEMBER_NAME)
 
     existing_items = load_existing_items(output_path)
-    existing_urls = set(i["url"] for i in existing_items)
+    existing_urls = set(normalize_url(i["url"]) for i in existing_items)
 
     new_items = []
 
@@ -130,6 +136,7 @@ async def main():
                     continue
 
                 full_url = "https://www.nogizaka46.com" + href
+                full_url = normalize_url(full_url)
 
                 # 重複スキップ
                 if full_url in existing_urls:
@@ -167,19 +174,19 @@ async def main():
         await browser.close()
 
     # --------------------------
-    # 統合＋ソート
+    # 統合
     # --------------------------
     all_items = []
 
-    # 既存（pubDateをそのまま使う）
+    # 既存
     for i in existing_items:
         all_items.append({
             "title": i["title"],
-            "url": i["url"],
+            "url": normalize_url(i["url"]),
             "pub": i["pub"]
         })
 
-    # 新規（date → pubDate変換）
+    # 新規
     for n in new_items:
         pub = format_rss_date(n["date"])
         all_items.append({
@@ -188,14 +195,19 @@ async def main():
             "pub": pub
         })
 
-    # 重複排除
+    # --------------------------
+    # 重複排除（URL基準）
+    # --------------------------
     unique = {}
     for item in all_items:
-        unique[item["url"]] = item
+        key = normalize_url(item["url"])
+        unique[key] = item
 
     all_items = list(unique.values())
 
-    # 日付ソート（新しい順）
+    # --------------------------
+    # ソート（新しい順）
+    # --------------------------
     all_items.sort(key=lambda x: parse_rss_pubdate(x["pub"]), reverse=True)
 
     # --------------------------
