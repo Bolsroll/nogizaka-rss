@@ -2,6 +2,7 @@ import asyncio
 import os
 import json
 import re
+from datetime import datetime
 from playwright.async_api import async_playwright
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
@@ -23,6 +24,27 @@ if not os.path.exists(DATA_FILE):
 
 
 # --------------------------
+# ユーティリティ
+# --------------------------
+def clean_text(s):
+    if not s:
+        return ""
+    return s.replace("\u00A0", " ").strip()
+
+
+def normalize_url(url):
+    return url.split("?")[0]
+
+
+def format_rss_date(date_str):
+    try:
+        dt = datetime.strptime(date_str, "%Y.%m.%d %H:%M")
+        return dt.strftime("%a, %d %b %Y %H:%M:%S +0900")
+    except:
+        return ""
+
+
+# --------------------------
 # データ
 # --------------------------
 def load_data():
@@ -36,70 +58,83 @@ def save_data(data):
 
 
 # --------------------------
-# URL正規化
-# --------------------------
-def normalize_url(url):
-    return url.split("?")[0]
-
-
-# --------------------------
-# 名前取得（安定版）
-# --------------------------
-async def get_member_name(page):
-    try:
-        await page.wait_for_selector("text=公式ブログ", timeout=10000)
-        text = await page.locator("text=公式ブログ").inner_text()
-
-        m = re.search(r"(.+?)\s*公式ブログ", text)
-        if m:
-            return m.group(1).strip()
-
-        return "unknown"
-    except:
-        return "unknown"
-
-
-# --------------------------
-# スクレイプ（完全版）
+# スクレイプ本体
 # --------------------------
 async def scrape(page, context):
-
-    items = []
-
     await page.goto(BASE_URL, timeout=60000)
-    await page.wait_for_selector("a[href*='/diary/detail/']")
+    await page.wait_for_selector("a[href*='/diary/detail/']", timeout=10000)
 
     links = await page.locator("a[href*='/diary/detail/']").all()
 
-    urls = []
-    for a in links[:FETCH_LIMIT]:
-        href = await a.get_attribute("href")
-        if href:
-            urls.append("https://www.nogizaka46.com" + href)
+    items = []
+    seen = set()
 
-    for url in urls:
+    for link in links[:FETCH_LIMIT]:
+        url = await link.get_attribute("href")
+        if not url:
+            continue
+
+        if not url.startswith("http"):
+            url = "https://www.nogizaka46.com" + url
+
+        norm = normalize_url(url)
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        # ------------------
+        # 詳細ページ
+        # ------------------
         detail = await context.new_page()
         await detail.goto(url, timeout=60000)
 
         html = await detail.content()
         body_text = await detail.inner_text("body")
 
+        html = clean_text(html)
+        body_text = clean_text(body_text)
+
+        # ------------------
         # タイトル
+        # ------------------
         title = "no title"
-        t = re.search(r"<title>(.*?)</title>", html, re.S)
-        if t:
-            title = t.group(1).strip()
+        try:
+            t = re.search(r"<title>(.*?)</title>", html, re.S)
+            if t:
+                title = clean_text(t.group(1))
+                title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", title).strip()
+        except:
+            pass
 
+        # ------------------
         # 日付
+        # ------------------
         date = "unknown"
-        m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
-        if m:
-            date = m.group(0)
+        try:
+            m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+            if m:
+                date = m.group(0)
+        except:
+            pass
 
+        # ------------------
         # 名前
-        name = await get_member_name(detail)
+        # ------------------
+        name = "unknown"
+        try:
+            lines = body_text.split("\n")
+            for line in lines:
+                if re.search(r"\d{4}\.\d{2}\.\d{2}", line) and "/" in line:
+                    parts = line.split("/")
+                    if len(parts) >= 2:
+                        candidate = clean_text(parts[1])
+                        candidate = re.sub(r"[^\wぁ-んァ-ン一-龥ー\s]", "", candidate)
+                        if 0 < len(candidate) < 20:
+                            name = candidate
+                            break
+        except:
+            pass
 
-        print(f"URL: {url}")
         print(f"取得: {title} / {name} / {date}")
 
         items.append({
@@ -156,12 +191,22 @@ def save_by_member(items):
 def generate_rss(items):
     rss_items = ""
 
+    seen = set()
+
     for item in items:
+        norm = normalize_url(item["url"])
+        if norm in seen:
+            continue
+        seen.add(norm)
+
+        pub = format_rss_date(item["date"])
+
         rss_items += f"""
         <item>
             <title>{item['title']}</title>
             <link>{item['url']}</link>
-            <pubDate>{item['date']}</pubDate>
+            <guid>{item['url']}</guid>
+            <pubDate>{pub}</pubDate>
         </item>
         """
 
@@ -188,12 +233,10 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-
         context = await browser.new_context()
         page = await context.new_page()
 
         new_items = await scrape(page, context)
-
         new_only = diff(new_items, old_data)
 
         print("新規:", len(new_only))
