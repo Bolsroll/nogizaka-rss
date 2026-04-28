@@ -59,86 +59,67 @@ async def get_member_name(page):
 # --------------------------
 import re
 
-async def scrape(page, context):
-    print("アクセス中...")
+# ----------------------------
+# 詳細ページスクレイプ
+# ----------------------------
+detail = await context.new_page()
+await detail.goto(url, timeout=60000)
 
-    # 軽量化（画像・CSSブロック）
-    await context.route("**/*", lambda route, request:
-        route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
-    )
+html = await detail.content()
+body_text = await detail.inner_text("body")
 
-    await page.goto(BASE_URL, timeout=60000)
-    await page.wait_for_timeout(2000)
+# デバッグ用（必要ならON）
+# print(html)
+# print(body_text)
 
-    links = await page.query_selector_all("a[href*='/diary/detail/']")
+# ----------------------------
+# タイトル
+# ----------------------------
+title = "no title"
+try:
+    t = re.search(r"<title>(.*?)</title>", html, re.S)
+    if t:
+        title = t.group(1).strip()
+except:
+    pass
 
-    results = []
+# ----------------------------
+# 日付
+# ----------------------------
+date = "unknown"
+try:
+    m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+    if m:
+        date = m.group(0)
+except:
+    pass
 
-    # タブ使い回し
-    detail = await context.new_page()
+# ----------------------------
+# 名前（最強安定版）
+# ----------------------------
+name = "unknown"
+try:
+    lines = body_text.split("\n")
+    for line in lines:
+        if re.search(r"\d{4}\.\d{2}\.\d{2}", line) and "/" in line:
+            parts = line.split("/")
+            if len(parts) >= 2:
+                candidate = parts[1].strip()
+                # 変な文字除去
+                candidate = re.sub(r"[^\wぁ-んァ-ン一-龥ー\s]", "", candidate)
+                if 0 < len(candidate) < 20:
+                    name = candidate
+                    break
+except:
+    pass
 
-    for link in links[:FETCH_LIMIT]:
-        try:
-            href = await link.get_attribute("href")
-            if not href:
-                continue
+# ----------------------------
+# 出力
+# ----------------------------
+print(f"URL: {url}")
+print(f"取得: {title} / {name} / {date}")
 
-            url = "https://www.nogizaka46.com" + href
-            title = (await link.inner_text()).strip()
-
-            print("URL:", url)
-
-            await detail.goto(url, timeout=60000)
-
-            # HTML完全ロード待ち（timeに依存しない）
-            await detail.wait_for_load_state("domcontentloaded")
-            await detail.wait_for_timeout(1500)
-
-            # 本文取得
-            body_text = await detail.text_content("body")
-
-            # ----------------------------
-            # 日付取得
-            # ----------------------------
-            date = "unknown"
-            try:
-                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
-                if m:
-                    date = m.group(0)
-            except:
-                pass
-
-            # ----------------------------
-            # 名前取得（本文から）
-            # ----------------------------
-            name = "unknown"
-            try:
-                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}\s*/\s*([^\n]+)", body_text)
-                if m:
-                    candidate = m.group(1).strip()
-
-                    # 異常値除外
-                    if 0 < len(candidate) < 20:
-                        name = candidate
-            except:
-                pass
-
-            print(f"取得：{title} / {name} / {date}")
-
-            results.append({
-                "title": title,
-                "url": url,
-                "date": date,
-                "member": name
-            })
-
-        except Exception as e:
-            print("エラー:", e)
-
-    await detail.close()
-
-    print("取得数:", len(results))
-    return results
+await detail.close()
 
 # --------------------------
 # 差分
