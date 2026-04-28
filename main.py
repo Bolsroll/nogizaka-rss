@@ -66,7 +66,9 @@ async def scrape(page, context):
     )
 
     await page.goto(BASE_URL, timeout=60000)
-    await page.wait_for_timeout(2000)
+
+    # 👇 固定waitやめる（軽量＆安定）
+    await page.wait_for_load_state("domcontentloaded")
 
     links = await page.query_selector_all("a[href*='/diary/detail/']")
 
@@ -87,12 +89,12 @@ async def scrape(page, context):
             # 👇 タブ使い回し
             await detail.goto(url, timeout=60000)
 
-            # 👇 wait短縮（固定2秒やめる）
-            await detail.wait_for_selector("time", timeout=5000)
+            # ❌ wait_for_selector("time") ← 削除（これがエラー原因）
 
-            # 日付
+            # 👇 安全にtime取得（存在しなくてもOK）
             try:
-                date = await detail.locator("time").inner_text()
+                time_el = await detail.query_selector("time")
+                date = await time_el.inner_text() if time_el else "unknown"
             except:
                 date = "unknown"
 
