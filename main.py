@@ -2,6 +2,9 @@ import asyncio
 import os
 import json
 import re
+
+LOCK_FILE = "running.lock"
+
 from datetime import datetime
 from playwright.async_api import async_playwright
 
@@ -290,4 +293,14 @@ async def main():
 # 実行
 # --------------------------
 if __name__ == "__main__":
-    asyncio.run(main())
+    if os.path.exists(LOCK_FILE):
+        print("⛔ 他の処理が動いてるので停止")
+        exit()
+
+    open(LOCK_FILE, "w").close()
+
+    try:
+        asyncio.run(main())
+    finally:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
