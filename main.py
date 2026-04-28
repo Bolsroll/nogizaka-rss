@@ -60,12 +60,20 @@ async def get_member_name(page):
 async def scrape(page, context):
     print("アクセス中...")
 
+    # 👇 軽量化：画像・CSSブロック
+    await context.route("**/*", lambda route, request:
+        route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
+    )
+
     await page.goto(BASE_URL, timeout=60000)
-    await page.wait_for_timeout(3000)
+    await page.wait_for_timeout(2000)
 
     links = await page.query_selector_all("a[href*='/diary/detail/']")
 
     results = []
+
+    # 👇 タブ1個だけ使い回す
+    detail = await context.new_page()
 
     for link in links[:FETCH_LIMIT]:
         try:
@@ -74,12 +82,13 @@ async def scrape(page, context):
                 continue
 
             url = "https://www.nogizaka46.com" + href
-
             title = (await link.inner_text()).strip()
 
-            detail = await context.new_page()
+            # 👇 タブ使い回し
             await detail.goto(url, timeout=60000)
-            await detail.wait_for_timeout(2000)
+
+            # 👇 wait短縮（固定2秒やめる）
+            await detail.wait_for_selector("time", timeout=5000)
 
             # 日付
             try:
@@ -99,10 +108,10 @@ async def scrape(page, context):
                 "member": name
             })
 
-            await detail.close()
-
         except Exception as e:
             print("エラー:", e)
+
+    await detail.close()
 
     print("取得数:", len(results))
     return results
