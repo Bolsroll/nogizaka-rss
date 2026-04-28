@@ -86,34 +86,26 @@ async def scrape(page, context):
             title = title.strip() if title else "no title"
 
             await detail.goto(url, timeout=60000)
-
-            # 固定waitだけ（selector待ちやめる）
             await detail.wait_for_timeout(1500)
 
-            # --- デバッグ（最初だけ見るならコメント外す） ---
-            # html = await detail.content()
-            # print(html[:500])
-
-            # --- 日付＆名前 ---
+            # --- 日付＆名前（HTMLから強制抽出） ---
             date = "unknown"
             name = "unknown"
 
             try:
-                meta = await detail.locator("text=/\\d{4}\\.\\d{2}\\.\\d{2}/").first.text_content()
+                html = await detail.content()
 
-                if meta:
-                    meta = meta.strip()
+                import re
+                m = re.search(r"(\\d{4}\\.\\d{2}\\.\\d{2}\\s\\d{2}:\\d{2})\\s*/\\s*([^<\\n]+)", html)
 
-                    # 例: 2026.04.27 21:43 / 菅原 咲月
-                    if "/" in meta:
-                        date_part, name_part = meta.split("/", 1)
-                        date = date_part.strip()
-                        name = name_part.strip()
+                if m:
+                    date = m.group(1).strip()
+                    name = m.group(2).strip()
 
             except Exception as e:
                 print("パースエラー:", e)
 
-            # --- タイトル（詳細ページから上書きしたい場合） ---
+            # --- タイトル補正（詳細ページ優先） ---
             try:
                 h1 = await detail.locator("h1").first.text_content()
                 if h1:
