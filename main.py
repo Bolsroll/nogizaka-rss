@@ -60,7 +60,6 @@ async def get_member_name(page):
 async def scrape(page, context):
     print("アクセス中...")
 
-    # 軽量化（画像・CSSカット）
     await context.route("**/*", lambda route, request:
         route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
     )
@@ -71,7 +70,6 @@ async def scrape(page, context):
     links = await page.query_selector_all("a[href*='/diary/detail/']")
 
     results = []
-
     detail = await context.new_page()
 
     for link in links[:FETCH_LIMIT]:
@@ -82,31 +80,42 @@ async def scrape(page, context):
 
             url = "https://www.nogizaka46.com" + href
 
-            # ❗ タイトル取得を修正
             title = await link.text_content()
-            if title:
-                title = title.strip()
-            else:
-                title = "no title"
+            title = title.strip() if title else "no title"
 
             await detail.goto(url, timeout=60000)
 
-            # ❗ wait強化（ここ重要）
-            await detail.wait_for_selector("time", timeout=10000)
+            # ❗ waitやめる → 軽く待つだけ
+            await detail.wait_for_timeout(1500)
 
-            # 日付
-            try:
-                date = await detail.locator("time").text_content()
-                date = date.strip() if date else "unknown"
-            except:
-                date = "unknown"
+            # ❗ デバッグ（これ入れろ）
+            html = await detail.content()
+            print("---- HTML ----")
+            print(html[:500])  # 先頭だけ表示（全部出すと重い）
 
-            # ❗ 名前取得（fallback強化）
+            # 日付（複数パターン対応）
+            date = "unknown"
             try:
-                name = await detail.locator("p.bd--prof__name").text_content()
-                name = name.strip() if name else "unknown"
+                if await detail.locator("time").count() > 0:
+                    date = await detail.locator("time").first.text_content()
+                elif await detail.locator(".bd--hd__date").count() > 0:
+                    date = await detail.locator(".bd--hd__date").first.text_content()
+                if date:
+                    date = date.strip()
             except:
-                name = "unknown"
+                pass
+
+            # 名前（複数パターン）
+            name = "unknown"
+            try:
+                if await detail.locator("p.bd--prof__name").count() > 0:
+                    name = await detail.locator("p.bd--prof__name").first.text_content()
+                elif await detail.locator(".bd--hd__name").count() > 0:
+                    name = await detail.locator(".bd--hd__name").first.text_content()
+                if name:
+                    name = name.strip()
+            except:
+                pass
 
             print(f"取得: {title} / {name}")
 
