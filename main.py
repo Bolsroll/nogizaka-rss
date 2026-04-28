@@ -69,9 +69,9 @@ async def scrape(page, context):
     await page.wait_for_timeout(2000)
 
     links = await page.query_selector_all("a[href*='/diary/detail/']")
+
     results = []
 
-    # タブ使い回し
     detail = await context.new_page()
 
     for link in links[:FETCH_LIMIT]:
@@ -81,28 +81,32 @@ async def scrape(page, context):
                 continue
 
             url = "https://www.nogizaka46.com" + href
-            title = (await link.inner_text()).strip()
+
+            # ❗ タイトル取得を修正
+            title = await link.text_content()
+            if title:
+                title = title.strip()
+            else:
+                title = "no title"
 
             await detail.goto(url, timeout=60000)
 
-            # 👇 time取得（fallback付き）
-            try:
-                await detail.wait_for_selector("time", timeout=3000)
-                date = await detail.locator("time").inner_text()
-            except:
-                try:
-                    date = await detail.locator("p[class*='date']").inner_text()
-                except:
-                    date = "unknown"
+            # ❗ wait強化（ここ重要）
+            await detail.wait_for_selector("time", timeout=10000)
 
-            # 👇 名前取得（強化版）
+            # 日付
             try:
-                name = await detail.locator("p[class*='name']").inner_text()
+                date = await detail.locator("time").text_content()
+                date = date.strip() if date else "unknown"
             except:
-                try:
-                    name = await detail.locator("h1").inner_text()
-                except:
-                    name = "unknown"
+                date = "unknown"
+
+            # ❗ 名前取得（fallback強化）
+            try:
+                name = await detail.locator("p.bd--prof__name").text_content()
+                name = name.strip() if name else "unknown"
+            except:
+                name = "unknown"
 
             print(f"取得: {title} / {name}")
 
@@ -120,7 +124,6 @@ async def scrape(page, context):
 
     print("取得数:", len(results))
     return results
-
 
 # --------------------------
 # 差分
