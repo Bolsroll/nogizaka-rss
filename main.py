@@ -86,33 +86,47 @@ async def scrape(page, context):
             title = title.strip() if title else "no title"
 
             await detail.goto(url, timeout=60000)
-            await detail.wait_for_timeout(1500)
 
-            # --- 日付＆名前（最強安定版） ---
+            # JS描画待ち（time or h1どっちか出ればOK）
+            try:
+                await detail.wait_for_selector("time, h1", timeout=10000)
+            except:
+                pass
+
+            # ----------------------------
+            # 日付 & 名前（DOM直取り）
+            # ----------------------------
             date = "unknown"
             name = "unknown"
 
+            # 日付
             try:
-                html = await detail.content()
+                el = detail.locator("time").first
+                if await el.count() > 0:
+                    txt = await el.text_content()
+                    if txt:
+                        date = txt.strip()
+            except:
+                pass
 
-                import re
+            # 名前（複数候補で安定化）
+            name_selectors = [
+                ".p-blog__name",
+                ".c-blogDetail__name",
+                ".p-blog-detail__name",
+                "a[href*='/member/detail/']",
+            ]
 
-                # HTMLタグ除去 + 改行潰し
-                text = re.sub(r"<.*?>", " ", html)
-                text = re.sub(r"\s+", " ", text)
-
-                # 日付 + 名前 抽出（改行・ズレ完全対応）
-                m = re.search(
-                    r"(\d{4}\.\d{2}\.\d{2}\s\d{2}:\d{2})\s*/\s*([^ ]+(?:\s[^ ]+)?)",
-                    text
-                )
-
-                if m:
-                    date = m.group(1).strip()
-                    name = m.group(2).strip()
-
-            except Exception as e:
-                print("パースエラー:", e)
+            for sel in name_selectors:
+                try:
+                    el = detail.locator(sel).first
+                    if await el.count() > 0:
+                        txt = await el.text_content()
+                        if txt and txt.strip():
+                            name = txt.strip()
+                            break
+                except:
+                    continue
 
             # タイトル補正（詳細ページ優先）
             try:
