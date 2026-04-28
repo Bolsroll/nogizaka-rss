@@ -60,21 +60,18 @@ async def get_member_name(page):
 async def scrape(page, context):
     print("アクセス中...")
 
-    # 👇 軽量化：画像・CSSブロック
+    # 軽量化（画像・CSSカット）
     await context.route("**/*", lambda route, request:
         route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
     )
 
     await page.goto(BASE_URL, timeout=60000)
-
-    # 👇 固定waitやめる（軽量＆安定）
-    await page.wait_for_load_state("domcontentloaded")
+    await page.wait_for_timeout(2000)
 
     links = await page.query_selector_all("a[href*='/diary/detail/']")
-
     results = []
 
-    # 👇 タブ1個だけ使い回す
+    # タブ使い回し
     detail = await context.new_page()
 
     for link in links[:FETCH_LIMIT]:
@@ -86,20 +83,26 @@ async def scrape(page, context):
             url = "https://www.nogizaka46.com" + href
             title = (await link.inner_text()).strip()
 
-            # 👇 タブ使い回し
             await detail.goto(url, timeout=60000)
 
-            # ❌ wait_for_selector("time") ← 削除（これがエラー原因）
-
-            # 👇 安全にtime取得（存在しなくてもOK）
+            # 👇 time取得（fallback付き）
             try:
-                time_el = await detail.query_selector("time")
-                date = await time_el.inner_text() if time_el else "unknown"
+                await detail.wait_for_selector("time", timeout=3000)
+                date = await detail.locator("time").inner_text()
             except:
-                date = "unknown"
+                try:
+                    date = await detail.locator("p[class*='date']").inner_text()
+                except:
+                    date = "unknown"
 
-            # 名前
-            name = await get_member_name(detail)
+            # 👇 名前取得（強化版）
+            try:
+                name = await detail.locator("p[class*='name']").inner_text()
+            except:
+                try:
+                    name = await detail.locator("h1").inner_text()
+                except:
+                    name = "unknown"
 
             print(f"取得: {title} / {name}")
 
