@@ -73,6 +73,8 @@ async def scrape(page, context):
     results = []
     detail = await context.new_page()
 
+    import re
+
     for link in links[:FETCH_LIMIT]:
         try:
             href = await link.get_attribute("href")
@@ -80,6 +82,7 @@ async def scrape(page, context):
                 continue
 
             url = "https://www.nogizaka46.com" + href
+            print("URL:", url)  # ← デバッグ用（消してもOK）
 
             # タイトル（一覧から）
             title = await link.text_content()
@@ -87,29 +90,30 @@ async def scrape(page, context):
 
             await detail.goto(url, timeout=60000)
 
-            # JS描画待ち（time or h1どっちか出ればOK）
+            # JS描画待ち
             try:
-                await detail.wait_for_selector("time, h1", timeout=10000)
+                await detail.wait_for_selector("body", timeout=10000)
             except:
                 pass
 
             # ----------------------------
-            # 日付 & 名前（DOM直取り）
+            # 日付（本文から取得）
             # ----------------------------
             date = "unknown"
-            name = "unknown"
-
-            # 日付
             try:
-                el = detail.locator("time").first
-                if await el.count() > 0:
-                    txt = await el.text_content()
-                    if txt:
-                        date = txt.strip()
+                body_text = await detail.text_content("body")
+                if body_text:
+                    m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+                    if m:
+                        date = m.group(0)
             except:
                 pass
 
-            # 名前（複数候補で安定化）
+            # ----------------------------
+            # 名前（DOMから取得）
+            # ----------------------------
+            name = "unknown"
+
             name_selectors = [
                 ".p-blog__name",
                 ".c-blogDetail__name",
@@ -136,7 +140,7 @@ async def scrape(page, context):
             except:
                 pass
 
-            print(f"取得: {title} / {name}")
+            print(f"取得: {title} / {name} / {date}")
 
             results.append({
                 "title": title,
