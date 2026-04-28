@@ -57,105 +57,88 @@ async def get_member_name(page):
 # --------------------------
 # スクレイピング
 # --------------------------
+import re
+
 async def scrape(page, context):
-    print("アクセス中...")
+    print("アクセス中...")
 
-    # 軽量化（画像・CSSブロック）
-    await context.route("**/*", lambda route, request:
-        route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
-    )
+    # 軽量化（画像・CSSブロック）
+    await context.route("**/*", lambda route, request:
+        route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
+    )
 
-    await page.goto(BASE_URL, timeout=60000)
-    await page.wait_for_timeout(2000)
+    await page.goto(BASE_URL, timeout=60000)
+    await page.wait_for_timeout(2000)
 
-    links = await page.query_selector_all("a[href*='/diary/detail/']")
+    links = await page.query_selector_all("a[href*='/diary/detail/']")
 
-    results = []
-    detail = await context.new_page()
+    results = []
 
-    import re
+    # タブ使い回し
+    detail = await context.new_page()
 
-    for link in links[:FETCH_LIMIT]:
-        try:
-            href = await link.get_attribute("href")
-            if not href:
-                continue
+    for link in links[:FETCH_LIMIT]:
+        try:
+            href = await link.get_attribute("href")
+            if not href:
+                continue
 
-            url = "https://www.nogizaka46.com" + href
-            print("URL:", url)  # ← デバッグ用（消してもOK）
+            url = "https://www.nogizaka46.com" + href
+            title = (await link.inner_text()).strip()
 
-            # タイトル（一覧から）
-            title = await link.text_content()
-            title = title.strip() if title else "no title"
+            print("URL:", url)
 
-            await detail.goto(url, timeout=60000)
+            await detail.goto(url, timeout=60000)
 
-            # JS描画待ち
-            try:
-                await detail.wait_for_selector("body", timeout=10000)
-            except:
-                pass
+            # HTML完全ロード待ち（timeに依存しない）
+            await detail.wait_for_load_state("domcontentloaded")
+            await detail.wait_for_timeout(1500)
 
-            # ----------------------------
-            # 日付（本文から取得）
-            # ----------------------------
-            date = "unknown"
-            try:
-                body_text = await detail.text_content("body")
-                if body_text:
-                    m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
-                    if m:
-                        date = m.group(0)
-            except:
-                pass
+            # 本文取得
+            body_text = await detail.text_content("body")
 
-            # ----------------------------
-            # 名前（DOMから取得）
-            # ----------------------------
-            name = "unknown"
+            # ----------------------------
+            # 日付取得
+            # ----------------------------
+            date = "unknown"
+            try:
+                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+                if m:
+                    date = m.group(0)
+            except:
+                pass
 
-            name_selectors = [
-                ".p-blog__name",
-                ".c-blogDetail__name",
-                ".p-blog-detail__name",
-                "a[href*='/member/detail/']",
-            ]
+            # ----------------------------
+            # 名前取得（本文から）
+            # ----------------------------
+            name = "unknown"
+            try:
+                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}\s*/\s*([^\n]+)", body_text)
+                if m:
+                    candidate = m.group(1).strip()
 
-            for sel in name_selectors:
-                try:
-                    el = detail.locator(sel).first
-                    if await el.count() > 0:
-                        txt = await el.text_content()
-                        if txt and txt.strip():
-                            name = txt.strip()
-                            break
-                except:
-                    continue
+                    # 異常値除外
+                    if 0 < len(candidate) < 20:
+                        name = candidate
+            except:
+                pass
 
-            # タイトル補正（詳細ページ優先）
-            try:
-                h1 = await detail.locator("h1").first.text_content()
-                if h1:
-                    title = h1.strip()
-            except:
-                pass
+            print(f"取得：{title} / {name} / {date}")
 
-            print(f"取得: {title} / {name} / {date}")
+            results.append({
+                "title": title,
+                "url": url,
+                "date": date,
+                "member": name
+            })
 
-            results.append({
-                "title": title,
-                "url": url,
-                "date": date,
-                "member": name
-            })
+        except Exception as e:
+            print("エラー:", e)
 
-        except Exception as e:
-            print("エラー:", e)
+    await detail.close()
 
-    await detail.close()
-
-    print("取得数:", len(results))
-    return results
+    print("取得数:", len(results))
+    return results
 
 # --------------------------
 # 差分
