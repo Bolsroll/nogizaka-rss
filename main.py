@@ -88,7 +88,7 @@ async def scrape(page, context):
             await detail.goto(url, timeout=60000)
             await detail.wait_for_timeout(1500)
 
-            # --- 日付＆名前（HTMLから強制抽出） ---
+            # --- 日付＆名前（最強安定版） ---
             date = "unknown"
             name = "unknown"
 
@@ -96,7 +96,16 @@ async def scrape(page, context):
                 html = await detail.content()
 
                 import re
-                m = re.search(r"(\\d{4}\\.\\d{2}\\.\\d{2}\\s\\d{2}:\\d{2})\\s*/\\s*([^<\\n]+)", html)
+
+                # HTMLタグ除去 + 改行潰し
+                text = re.sub(r"<.*?>", " ", html)
+                text = re.sub(r"\s+", " ", text)
+
+                # 日付 + 名前 抽出（改行・ズレ完全対応）
+                m = re.search(
+                    r"(\d{4}\.\d{2}\.\d{2}\s\d{2}:\d{2})\s*/\s*([^ ]+(?:\s[^ ]+)?)",
+                    text
+                )
 
                 if m:
                     date = m.group(1).strip()
@@ -105,7 +114,7 @@ async def scrape(page, context):
             except Exception as e:
                 print("パースエラー:", e)
 
-            # --- タイトル補正（詳細ページ優先） ---
+            # タイトル補正（詳細ページ優先）
             try:
                 h1 = await detail.locator("h1").first.text_content()
                 if h1:
