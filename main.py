@@ -9,8 +9,8 @@ BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
 DATA_FILE = "data.json"
 MEMBER_DIR = "members"
 
-FETCH_LIMIT = 50   # 取得数
-MAX_ITEMS = 30     # 保存数
+FETCH_LIMIT = 50
+MAX_ITEMS = 30
 
 # --------------------------
 # 初期化
@@ -36,12 +36,18 @@ def save_data(data):
 
 
 # --------------------------
-# 名前取得（最強安定版）
+# URL正規化
+# --------------------------
+def normalize_url(url):
+    return url.split("?")[0]
+
+
+# --------------------------
+# 名前取得（安定版）
 # --------------------------
 async def get_member_name(page):
     try:
         await page.wait_for_selector("text=公式ブログ", timeout=10000)
-
         text = await page.locator("text=公式ブログ").inner_text()
 
         m = re.search(r"(.+?)\s*公式ブログ", text)
@@ -49,77 +55,64 @@ async def get_member_name(page):
             return m.group(1).strip()
 
         return "unknown"
-
     except:
         return "unknown"
 
 
 # --------------------------
-# スクレイピング
+# スクレイプ（完全版）
 # --------------------------
-import re
+async def scrape(page, context):
 
-# ----------------------------
-# 詳細ページスクレイプ
-# ----------------------------
-detail = await context.new_page()
-await detail.goto(url, timeout=60000)
+    items = []
 
-html = await detail.content()
-body_text = await detail.inner_text("body")
+    await page.goto(BASE_URL, timeout=60000)
+    await page.wait_for_selector("a[href*='/diary/detail/']")
 
-# デバッグ用（必要ならON）
-# print(html)
-# print(body_text)
+    links = await page.locator("a[href*='/diary/detail/']").all()
 
-# ----------------------------
-# タイトル
-# ----------------------------
-title = "no title"
-try:
-    t = re.search(r"<title>(.*?)</title>", html, re.S)
-    if t:
-        title = t.group(1).strip()
-except:
-    pass
+    urls = []
+    for a in links[:FETCH_LIMIT]:
+        href = await a.get_attribute("href")
+        if href:
+            urls.append("https://www.nogizaka46.com" + href)
 
-# ----------------------------
-# 日付
-# ----------------------------
-date = "unknown"
-try:
-    m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
-    if m:
-        date = m.group(0)
-except:
-    pass
+    for url in urls:
+        detail = await context.new_page()
+        await detail.goto(url, timeout=60000)
 
-# ----------------------------
-# 名前（最強安定版）
-# ----------------------------
-name = "unknown"
-try:
-    lines = body_text.split("\n")
-    for line in lines:
-        if re.search(r"\d{4}\.\d{2}\.\d{2}", line) and "/" in line:
-            parts = line.split("/")
-            if len(parts) >= 2:
-                candidate = parts[1].strip()
-                # 変な文字除去
-                candidate = re.sub(r"[^\wぁ-んァ-ン一-龥ー\s]", "", candidate)
-                if 0 < len(candidate) < 20:
-                    name = candidate
-                    break
-except:
-    pass
+        html = await detail.content()
+        body_text = await detail.inner_text("body")
 
-# ----------------------------
-# 出力
-# ----------------------------
-print(f"URL: {url}")
-print(f"取得: {title} / {name} / {date}")
+        # タイトル
+        title = "no title"
+        t = re.search(r"<title>(.*?)</title>", html, re.S)
+        if t:
+            title = t.group(1).strip()
 
-await detail.close()
+        # 日付
+        date = "unknown"
+        m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+        if m:
+            date = m.group(0)
+
+        # 名前
+        name = await get_member_name(detail)
+
+        print(f"URL: {url}")
+        print(f"取得: {title} / {name} / {date}")
+
+        items.append({
+            "title": title,
+            "url": url,
+            "date": date,
+            "member": name
+        })
+
+        await detail.close()
+
+    return items
+
 
 # --------------------------
 # 差分
@@ -128,12 +121,10 @@ def diff(new, old):
     old_urls = set(normalize_url(x["url"]) for x in old)
     return [x for x in new if normalize_url(x["url"]) not in old_urls]
 
+
 # --------------------------
 # メンバー別保存
 # --------------------------
-def normalize_url(url):
-    return url.split("?")[0]
-
 def save_by_member(items):
     for item in items:
         name = item["member"] or "unknown"
@@ -147,7 +138,6 @@ def save_by_member(items):
         else:
             data = []
 
-        # 👇 URL正規化して比較
         urls = set(normalize_url(x["url"]) for x in data)
 
         if normalize_url(item["url"]) in urls:
@@ -158,6 +148,7 @@ def save_by_member(items):
 
         with open(path, "w") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 # --------------------------
 # RSS生成
@@ -207,7 +198,6 @@ async def main():
 
         print("新規:", len(new_only))
 
-        # 常に最新データ作る
         new_urls = set(normalize_url(n["url"]) for n in new_only)
 
         all_data = new_only + [
@@ -215,17 +205,11 @@ async def main():
             if normalize_url(x["url"]) not in new_urls
         ]
 
-#   いらねーんだってさ　てめえで入れろっつったくせに
-#        all_data = sorted(all_data, key=lambda x: x["date"], reverse=True)
-
-        # 新規があるときだけ保存
         save_data(all_data)
 
         if new_only:
             save_by_member(new_only)
 
-
-        # 👇毎回実行（ここだけが今回の修正ポイント）
         generate_rss(all_data[:50])
 
         await browser.close()
