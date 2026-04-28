@@ -60,6 +60,7 @@ async def get_member_name(page):
 async def scrape(page, context):
     print("アクセス中...")
 
+    # 軽量化（画像・CSSブロック）
     await context.route("**/*", lambda route, request:
         route.abort() if request.resource_type in ["image", "stylesheet", "font"] else route.continue_()
     )
@@ -80,40 +81,43 @@ async def scrape(page, context):
 
             url = "https://www.nogizaka46.com" + href
 
+            # タイトル（一覧から）
             title = await link.text_content()
             title = title.strip() if title else "no title"
 
             await detail.goto(url, timeout=60000)
 
-            # ❗ waitやめる → 軽く待つだけ
+            # 固定waitだけ（selector待ちやめる）
             await detail.wait_for_timeout(1500)
 
-            # ❗ デバッグ（これ入れろ）
-            html = await detail.content()
-            print("---- HTML ----")
-            print(html[:500])  # 先頭だけ表示（全部出すと重い）
+            # --- デバッグ（最初だけ見るならコメント外す） ---
+            # html = await detail.content()
+            # print(html[:500])
 
-            # 日付（複数パターン対応）
+            # --- 日付＆名前 ---
             date = "unknown"
-            try:
-                if await detail.locator("time").count() > 0:
-                    date = await detail.locator("time").first.text_content()
-                elif await detail.locator(".bd--hd__date").count() > 0:
-                    date = await detail.locator(".bd--hd__date").first.text_content()
-                if date:
-                    date = date.strip()
-            except:
-                pass
-
-            # 名前（複数パターン）
             name = "unknown"
+
             try:
-                if await detail.locator("p.bd--prof__name").count() > 0:
-                    name = await detail.locator("p.bd--prof__name").first.text_content()
-                elif await detail.locator(".bd--hd__name").count() > 0:
-                    name = await detail.locator(".bd--hd__name").first.text_content()
-                if name:
-                    name = name.strip()
+                meta = await detail.locator("text=/\\d{4}\\.\\d{2}\\.\\d{2}/").first.text_content()
+
+                if meta:
+                    meta = meta.strip()
+
+                    # 例: 2026.04.27 21:43 / 菅原 咲月
+                    if "/" in meta:
+                        date_part, name_part = meta.split("/", 1)
+                        date = date_part.strip()
+                        name = name_part.strip()
+
+            except Exception as e:
+                print("パースエラー:", e)
+
+            # --- タイトル（詳細ページから上書きしたい場合） ---
+            try:
+                h1 = await detail.locator("h1").first.text_content()
+                if h1:
+                    title = h1.strip()
             except:
                 pass
 
