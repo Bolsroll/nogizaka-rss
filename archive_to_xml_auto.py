@@ -10,8 +10,8 @@ LOCK_FILE = "running.lock"
 # ▼ 設定
 # =========================
 MEMBER_ID = "55391"
-START_PAGE = 0
-END_PAGE = 2
+START_PAGE = 2
+END_PAGE = 3
 # =========================
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
@@ -20,14 +20,14 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 
 # --------------------------
-# URL正規化（?以降を削除）
+# URL正規化
 # --------------------------
 def normalize_url(url):
     return url.split("?")[0]
 
 
 # --------------------------
-# CSV → ID / 名前 / ローマ字
+# CSV読み込み
 # --------------------------
 def load_members(csv_path="members.csv"):
     id_to_name = {}
@@ -49,7 +49,7 @@ def load_members(csv_path="members.csv"):
 
 
 # --------------------------
-# 日付変換
+# 日付処理
 # --------------------------
 def format_rss_date(date_str):
     try:
@@ -94,6 +94,32 @@ def load_existing_items(path):
 
 
 # --------------------------
+# ページ範囲読み込み
+# --------------------------
+def load_page_range(path):
+    if not os.path.exists(path):
+        return None, None
+
+    with open(path, "r", encoding="utf-8") as f:
+        xml = f.read()
+
+    m = re.search(r"Pages:\s*(\d+)-(\d+)", xml)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+
+    return None, None
+
+
+# --------------------------
+# ページ範囲マージ
+# --------------------------
+def merge_page_range(old_min, old_max, new_min, new_max):
+    if old_min is None:
+        return new_min, new_max
+    return min(old_min, new_min), max(old_max, new_max)
+
+
+# --------------------------
 # メイン
 # --------------------------
 async def main():
@@ -112,6 +138,12 @@ async def main():
     existing_items = load_existing_items(output_path)
     existing_urls = set(normalize_url(i["url"]) for i in existing_items)
 
+    # 👇 ページ範囲取得
+    old_min, old_max = load_page_range(output_path)
+    final_min, final_max = merge_page_range(old_min, old_max, START_PAGE, END_PAGE)
+
+    print(f"ページ範囲: {final_min}-{final_max}")
+
     new_items = []
 
     async with async_playwright() as p:
@@ -126,7 +158,6 @@ async def main():
             await page.goto(url, timeout=60000)
 
             links = await page.locator("a[href*='/diary/detail/']").all()
-
             if not links:
                 break
 
@@ -135,10 +166,8 @@ async def main():
                 if not href:
                     continue
 
-                full_url = "https://www.nogizaka46.com" + href
-                full_url = normalize_url(full_url)
+                full_url = normalize_url("https://www.nogizaka46.com" + href)
 
-                # 重複スキップ
                 if full_url in existing_urls:
                     continue
 
@@ -148,14 +177,11 @@ async def main():
                 html = await detail.content()
                 body = await detail.inner_text("body")
 
-                # タイトル
                 title = "no title"
                 t = re.search(r"<title>(.*?)</title>", html, re.S)
                 if t:
-                    title = t.group(1).strip()
-                    title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", title).strip()
+                    title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", t.group(1)).strip()
 
-                # 日付
                 date = ""
                 m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body)
                 if m:
@@ -178,7 +204,6 @@ async def main():
     # --------------------------
     all_items = []
 
-    # 既存
     for i in existing_items:
         all_items.append({
             "title": i["title"],
@@ -186,28 +211,21 @@ async def main():
             "pub": i["pub"]
         })
 
-    # 新規
     for n in new_items:
-        pub = format_rss_date(n["date"])
         all_items.append({
             "title": n["title"],
             "url": n["url"],
-            "pub": pub
+            "pub": format_rss_date(n["date"])
         })
 
-    # --------------------------
-    # 重複排除（URL基準）
-    # --------------------------
+    # 重複排除
     unique = {}
     for item in all_items:
-        key = normalize_url(item["url"])
-        unique[key] = item
+        unique[normalize_url(item["url"])] = item
 
     all_items = list(unique.values())
 
-    # --------------------------
-    # ソート（新しい順）
-    # --------------------------
+    # ソート
     all_items.sort(key=lambda x: parse_rss_pubdate(x["pub"]), reverse=True)
 
     # --------------------------
@@ -230,7 +248,7 @@ async def main():
 <channel>
 <title>{MEMBER_NAME} Archive</title>
 <link>{BASE_URL}</link>
-<description>過去記事</description>
+<description>過去記事 Pages: {final_min}-{final_max}</description>
 {rss_items}
 </channel>
 </rss>
@@ -243,7 +261,7 @@ async def main():
 
 
 # --------------------------
-# ロック制御
+# ロック
 # --------------------------
 if __name__ == "__main__":
     if os.path.exists(LOCK_FILE):
