@@ -292,12 +292,23 @@ async def main():
 # --------------------------
 # 実行
 # --------------------------
-if __name__ == "__main__":
-    if os.path.exists(LOCK_FILE):
-        print("⛔ 他の処理が動いてるので停止")
-        exit()
+import time  # ← 上のimportに追加
 
-    open(LOCK_FILE, "w").close()
+if __name__ == "__main__":
+    MAX_AGE = 30 * 60  # 30分
+
+    if os.path.exists(LOCK_FILE):
+        age = time.time() - os.path.getmtime(LOCK_FILE)
+
+        if age < MAX_AGE:
+            print("⛔ 他の処理が動いてるので停止")
+            exit()
+        else:
+            print("⚠️ 古いlock削除")
+            os.remove(LOCK_FILE)
+
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
 
     try:
         asyncio.run(main())
