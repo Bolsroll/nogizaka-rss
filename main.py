@@ -2,11 +2,11 @@ import asyncio
 import os
 import json
 import re
-
-LOCK_FILE = "running.lock"
-
+import time
 from datetime import datetime
 from playwright.async_api import async_playwright
+
+LOCK_FILE = "running.lock"
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
 
@@ -61,10 +61,10 @@ def save_data(data):
 
 
 # --------------------------
-# スクレイプ本体
+# スクレイプ本体（超安定版）
 # --------------------------
 async def scrape(page, context):
-    await page.goto(BASE_URL, timeout=60000)
+    await page.goto(BASE_URL, timeout=60000, wait_until="domcontentloaded")
     await page.wait_for_selector("a[href*='/diary/detail/']", timeout=10000)
 
     links = await page.locator("a[href*='/diary/detail/']").all()
@@ -86,94 +86,66 @@ async def scrape(page, context):
         seen.add(norm)
 
         # ------------------
-        # 詳細ページ
+        # 詳細ページ（例外耐性あり）
         # ------------------
-        detail = await context.new_page()
-        await detail.goto(url, timeout=60000)
-
-        html = await detail.content()
-        body_text = await detail.inner_text("body")
-
-        html = clean_text(html)
-        body_text = clean_text(body_text)
-
-        # ------------------
-        # タイトル
-        # ------------------
-        title = "no title"
+        detail = None
         try:
+            detail = await context.new_page()
+            await detail.goto(url, timeout=60000, wait_until="domcontentloaded")
+
+            html = await detail.content()
+            body_text = await detail.inner_text("body")
+
+            html = clean_text(html)
+            body_text = clean_text(body_text)
+
+            # タイトル
+            title = "no title"
             t = re.search(r"<title>(.*?)</title>", html, re.S)
             if t:
                 title = clean_text(t.group(1))
                 title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", title).strip()
-        except:
-            pass
 
-        # ------------------
-        # 日付
-        # ------------------
-        date = "unknown"
-        try:
+            # 日付
+            date = "unknown"
             m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
             if m:
                 date = m.group(0)
-        except:
-            pass
 
-        # ------------------
-        # 名前（安定版・HTML直取り）
-        # ------------------
-        name = "unknown"
+            # 名前
+            name = "unknown"
 
-        # ① プロフィール欄から取得（最優先）
-        try:
             m = re.search(r'<p class="bd--prof__name">(.*?)</p>', html)
             if m:
                 name = clean_text(m.group(1))
-        except:
-            pass
 
-        # ② titleから取得（フォールバック）
-        if name == "unknown":
-            try:
+            if name == "unknown":
                 m = re.search(r"<title>(.*?)</title>", html, re.S)
                 if m:
                     t = clean_text(m.group(1))
-
-                    # 「タイトル｜名前」形式
                     if "｜" in t:
                         name = t.split("｜")[-1].strip()
-
-                    # 「タイトル | 名前」形式
                     elif "|" in t:
                         name = t.split("|")[-1].strip()
-            except:
-                pass
 
-        # ③ 最終保険（bodyから抽出）
-        if name == "unknown":
-            try:
-                lines = body_text.split("\n")
-                for line in lines:
-                    if "公式ブログ" in line:
-                        candidate = re.sub(r"公式ブログ.*", "", line).strip()
-                        candidate = re.sub(r"[^\wぁ-んァ-ン一-龥ー\s]", "", candidate)
-                        if 0 < len(candidate) < 20:
-                            name = candidate
-                            break
-            except:
-                pass
+            print(f"取得: {title} / {name} / {date}")
 
-        print(f"取得: {title} / {name} / {date}")
+            items.append({
+                "title": title,
+                "url": url,
+                "date": date,
+                "member": name
+            })
 
-        items.append({
-            "title": title,
-            "url": url,
-            "date": date,
-            "member": name
-        })
+        except Exception as e:
+            print("⚠️ 取得失敗:", url)
 
-        await detail.close()
+        finally:
+            if detail:
+                try:
+                    await detail.close()
+                except:
+                    pass
 
     return items
 
@@ -219,7 +191,6 @@ def save_by_member(items):
 # --------------------------
 def generate_rss(items):
     rss_items = ""
-
     seen = set()
 
     for item in items:
@@ -290,12 +261,10 @@ async def main():
 
 
 # --------------------------
-# 実行
+# 実行（ロック完全版）
 # --------------------------
-import time  # ← 上のimportに追加
-
 if __name__ == "__main__":
-    MAX_AGE = 30 * 60  # 30分
+    MAX_AGE = 30 * 60
 
     if os.path.exists(LOCK_FILE):
         age = time.time() - os.path.getmtime(LOCK_FILE)
