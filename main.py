@@ -61,10 +61,10 @@ def save_data(data):
 
 
 # --------------------------
-# スクレイプ本体（超安定版）
+# スクレイプ本体（デバッグ強化版）
 # --------------------------
 async def scrape(page, context):
-    await page.goto(BASE_URL, timeout=60000, wait_until="domcontentloaded")
+    await page.goto(BASE_URL, timeout=60000)
     await page.wait_for_selector("a[href*='/diary/detail/']", timeout=10000)
 
     links = await page.locator("a[href*='/diary/detail/']").all()
@@ -85,50 +85,82 @@ async def scrape(page, context):
             continue
         seen.add(norm)
 
-        # ------------------
-        # 詳細ページ（例外耐性あり）
-        # ------------------
         detail = None
         try:
             detail = await context.new_page()
-            await detail.goto(url, timeout=60000, wait_until="domcontentloaded")
+            await detail.goto(url, timeout=60000)
 
-            html = await detail.content()
-            body_text = await detail.inner_text("body")
+            # 👇 重要：JS描画待ち
+            await detail.wait_for_load_state("networkidle")
+            await detail.wait_for_timeout(1500)
 
-            html = clean_text(html)
-            body_text = clean_text(body_text)
-
+            # ------------------
             # タイトル
+            # ------------------
             title = "no title"
-            t = re.search(r"<title>(.*?)</title>", html, re.S)
-            if t:
-                title = clean_text(t.group(1))
+            try:
+                title = await detail.title()
                 title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", title).strip()
+            except:
+                pass
 
+            # ------------------
             # 日付
+            # ------------------
             date = "unknown"
-            m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
-            if m:
-                date = m.group(0)
+            try:
+                body_text = await detail.inner_text("body")
+                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+                if m:
+                    date = m.group(0)
+            except:
+                pass
 
+            # ------------------
             # 名前
+            # ------------------
             name = "unknown"
 
-            m = re.search(r'<p class="bd--prof__name">(.*?)</p>', html)
-            if m:
-                name = clean_text(m.group(1))
+            try:
+                name = await detail.locator("p.bd--prof__name").inner_text(timeout=3000)
+                name = clean_text(name)
+            except:
+                pass
 
+            # フォールバック
             if name == "unknown":
-                m = re.search(r"<title>(.*?)</title>", html, re.S)
-                if m:
-                    t = clean_text(m.group(1))
+                try:
+                    t = await detail.title()
                     if "｜" in t:
                         name = t.split("｜")[-1].strip()
                     elif "|" in t:
                         name = t.split("|")[-1].strip()
+                except:
+                    pass
 
+            # ------------------
+            # ログ（通常）
+            # ------------------
             print(f"取得: {title} / {name} / {date}")
+
+            # ------------------
+            # デバッグログ（unknown時）
+            # ------------------
+            if name == "unknown":
+                print("⚠️ UNKNOWN DETECTED")
+                print("URL:", url)
+
+                try:
+                    html = await detail.content()
+
+                    print("HTML先頭:", html[:300])
+
+                    # Cloudflare判定
+                    if "Just a moment" in html or "Checking your browser" in html:
+                        print("🚫 Cloudflareブロック検知")
+
+                except:
+                    print("HTML取得失敗")
 
             items.append({
                 "title": title,
@@ -233,7 +265,11 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
+
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+        )
+
         page = await context.new_page()
 
         new_items = await scrape(page, context)
@@ -261,7 +297,7 @@ async def main():
 
 
 # --------------------------
-# 実行（ロック完全版）
+# 実行（ロック）
 # --------------------------
 if __name__ == "__main__":
     MAX_AGE = 30 * 60
