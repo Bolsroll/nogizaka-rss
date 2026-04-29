@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import time
 from datetime import datetime
 from playwright.async_api import async_playwright
 
@@ -10,8 +11,8 @@ LOCK_FILE = "running.lock"
 # ▼ 設定
 # =========================
 MEMBER_ID = "55391"
-START_PAGE = 2
-END_PAGE = 3
+START_PAGE = 6
+END_PAGE = 13
 # =========================
 
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
@@ -138,7 +139,7 @@ async def main():
     existing_items = load_existing_items(output_path)
     existing_urls = set(normalize_url(i["url"]) for i in existing_items)
 
-    # 👇 ページ範囲取得
+    # ページ範囲
     old_min, old_max = load_page_range(output_path)
     final_min, final_max = merge_page_range(old_min, old_max, START_PAGE, END_PAGE)
 
@@ -177,11 +178,13 @@ async def main():
                 html = await detail.content()
                 body = await detail.inner_text("body")
 
+                # タイトル
                 title = "no title"
                 t = re.search(r"<title>(.*?)</title>", html, re.S)
                 if t:
                     title = re.sub(r"\d{4}\.\d{2}\.\d{2}.*", "", t.group(1)).strip()
 
+                # 日付
                 date = ""
                 m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body)
                 if m:
@@ -225,11 +228,11 @@ async def main():
 
     all_items = list(unique.values())
 
-    # ソート
+    # ソート（新しい順）
     all_items.sort(key=lambda x: parse_rss_pubdate(x["pub"]), reverse=True)
 
     # --------------------------
-    # RSS生成
+    # RSS生成（★件数追加）
     # --------------------------
     rss_items = ""
 
@@ -243,12 +246,14 @@ async def main():
         </item>
         """
 
+    total_count = len(all_items)
+
     rss = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0">
 <channel>
 <title>{MEMBER_NAME} Archive</title>
 <link>{BASE_URL}</link>
-<description>過去記事 Pages: {final_min}-{final_max}</description>
+<description>過去記事 {total_count}件 Pages: {final_min}-{final_max}</description>
 {rss_items}
 </channel>
 </rss>
@@ -257,33 +262,30 @@ async def main():
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(rss)
 
-    print("✅ 完了:", output_path)
+    print(f"✅ 完了: {output_path}（{total_count}件）")
 
 
 # --------------------------
-# ロック
+# ロック（安全版）
 # --------------------------
-import time
+if __name__ == "__main__":
+    MAX_AGE = 30 * 60
 
-LOCK_FILE = "running.lock"
-MAX_AGE = 30 * 60
-
-if os.path.exists(LOCK_FILE):
-    age = time.time() - os.path.getmtime(LOCK_FILE)
-
-    if age < MAX_AGE:
-        print("⛔ 他の処理が動いてるので停止")
-        exit()
-    else:
-        print("⚠️ 古いlock削除")
-        os.remove(LOCK_FILE)
-
-with open(LOCK_FILE, "w") as f:
-    f.write(str(os.getpid()))
-
-try:
-    # ここに元の処理を書く
-    main()  # or asyncio.run(main())
-finally:
     if os.path.exists(LOCK_FILE):
-        os.remove(LOCK_FILE)
+        age = time.time() - os.path.getmtime(LOCK_FILE)
+
+        if age < MAX_AGE:
+            print("⛔ 他の処理が動いてるので停止")
+            exit()
+        else:
+            print("⚠️ 古いlock削除")
+            os.remove(LOCK_FILE)
+
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+    try:
+        asyncio.run(main())
+    finally:
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
