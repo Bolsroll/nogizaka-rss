@@ -1,5 +1,13 @@
 #!/bin/bash
 
-cd "$(dirname "$0")"
+# cd /Users/dig/nogi-rss
+# source venv/bin/activate
+# exec python gui.py
 
-python3 gui.py >/dev/null 2>&1 &
+# exit
+
+#!/bin/bash
+
+cd /Users/dig/nogi-rss
+
+exec /usr/local/bin/python3 gui.py

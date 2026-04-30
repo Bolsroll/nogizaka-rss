@@ -1,15 +1,14 @@
 #!/bin/bash
 
-set -e  # エラーで即停止（重要）
+set -e
 
 # -----------------------
 # 設定
 # -----------------------
 BASE_DIR="/Users/dig/nogi-rss"
 LOG_FILE="$BASE_DIR/cron.log"
-PYTHON="/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
+PYTHON="/usr/local/bin/python3"
 
-# 環境固定（超重要）
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export LANG="ja_JP.UTF-8"
 export LC_ALL="ja_JP.UTF-8"
@@ -42,7 +41,7 @@ cd "$BASE_DIR" || {
 echo "[ENV] pwd after cd: $(pwd)" >> "$LOG_FILE"
 
 # -----------------------
-# Playwright確認（軽量チェックに変更）
+# Playwright確認
 # -----------------------
 echo "[INIT] playwright check" >> "$LOG_FILE"
 $PYTHON -m playwright --version >> "$LOG_FILE" 2>&1 || {
@@ -51,19 +50,16 @@ $PYTHON -m playwright --version >> "$LOG_FILE" 2>&1 || {
 }
 
 # -----------------------
-# スクレイピング
+# 実行
 # -----------------------
 echo "[RUN] main.py" >> "$LOG_FILE"
 $PYTHON main.py >> "$LOG_FILE" 2>&1
 
-# -----------------------
-# XML生成
-# -----------------------
 echo "[RUN] make_member_xml.py" >> "$LOG_FILE"
 $PYTHON make_member_xml.py >> "$LOG_FILE" 2>&1
 
 # -----------------------
-# Git処理
+# Git
 # -----------------------
 echo "[GIT] cleanup" >> "$LOG_FILE"
 rm -f .git/index.lock >> "$LOG_FILE" 2>&1
@@ -79,7 +75,7 @@ echo "[GIT] push" >> "$LOG_FILE"
 git push -f origin main >> "$LOG_FILE" 2>&1
 
 # -----------------------
-# 終了ログ
+# 終了
 # -----------------------
 echo "END: $(date)" >> "$LOG_FILE"
 echo "==============================" >> "$LOG_FILE"

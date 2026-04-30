@@ -6,7 +6,7 @@ import sys
 import threading
 
 # --------------------------
-# 実行ディレクトリ固定（.app対策）
+# 実行ディレクトリ固定
 # --------------------------
 if getattr(sys, 'frozen', False):
     BASE_DIR = os.path.dirname(sys.executable)
@@ -16,9 +16,9 @@ else:
 os.chdir(BASE_DIR)
 
 # --------------------------
-# Playwrightパス固定（.app対策）
+# Playwrightパス固定
 # --------------------------
-os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+# os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
 
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
@@ -45,19 +45,21 @@ def load_config():
 # 設定 保存
 # --------------------------
 def save_config(data):
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+    try:
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception as e:
+        print("config保存失敗:", e)
 
 
 # --------------------------
-# 実行処理（別スレッド）
+# 実行処理
 # --------------------------
 def run_script():
     member_id = entry_member.get()
     start_page = entry_start.get()
     end_page = entry_end.get()
 
-    # 入力チェック
     if not member_id or not start_page.isdigit() or not end_page.isdigit():
         messagebox.showerror("エラー", "入力値が不正です")
         return
@@ -77,13 +79,28 @@ def run_script():
 
             asyncio.run(main(member_id, int(start_page), int(end_page)))
 
-            messagebox.showinfo("完了", "処理が完了しました")
-        except Exception as e:
-            messagebox.showerror("エラー", str(e))
-        finally:
-            btn_run.config(state="normal", text="Run")
+            # UIスレッドで実行
+            root.after(0, lambda: messagebox.showinfo("完了", "処理が完了しました"))
 
-    threading.Thread(target=task).start()
+        except Exception as e:
+            # ★ここ修正（lambdaスコープ問題回避）
+            err = str(e)
+            root.after(0, lambda err=err: messagebox.showerror("エラー", err))
+
+        finally:
+            root.after(0, lambda: btn_run.config(state="normal", text="Run"))
+
+    threading.Thread(target=task, daemon=True).start()
+
+
+# --------------------------
+# ウィンドウ閉じた時に完全終了
+# --------------------------
+def on_close():
+    try:
+        root.destroy()
+    finally:
+        os._exit(0)  # ← ターミナルごと強制終了
 
 
 # --------------------------
@@ -112,5 +129,8 @@ entry_end.pack()
 
 btn_run = tk.Button(root, text="Run", command=run_script)
 btn_run.pack(pady=15)
+
+# 閉じる処理
+root.protocol("WM_DELETE_WINDOW", on_close)
 
 root.mainloop()
