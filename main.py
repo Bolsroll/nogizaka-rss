@@ -25,24 +25,22 @@ if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
         json.dump([], f)
 
-# 👇 unknown.json削除（重要）
+# 👇 unknown.json削除
 unknown_path = os.path.join(MEMBER_DIR, "unknown.json")
 if os.path.exists(unknown_path):
     os.remove(unknown_path)
     print("🧹 unknown.json削除")
 
 # --------------------------
-# ユーティリティ
+# utils
 # --------------------------
 def clean_text(s):
     if not s:
         return ""
     return s.replace("\u00A0", " ").strip()
 
-
 def normalize_url(url):
     return url.split("?")[0]
-
 
 def format_rss_date(date_str):
     try:
@@ -51,22 +49,19 @@ def format_rss_date(date_str):
     except:
         return ""
 
-
 # --------------------------
-# データ
+# data
 # --------------------------
 def load_data():
     with open(DATA_FILE, "r") as f:
         return json.load(f)
 
-
 def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-
 # --------------------------
-# スクレイプ本体（安定＋デバッグ）
+# scrape
 # --------------------------
 async def scrape(page, context):
     await page.goto(BASE_URL, timeout=60000)
@@ -98,7 +93,7 @@ async def scrape(page, context):
             await detail.wait_for_load_state("networkidle")
             await detail.wait_for_timeout(1500)
 
-            # タイトル
+            # title
             title = "no title"
             try:
                 title = await detail.title()
@@ -106,26 +101,24 @@ async def scrape(page, context):
             except:
                 pass
 
-            # 日付
+            # date
             date = "unknown"
             try:
-                body_text = await detail.inner_text("body")
-                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body_text)
+                body = await detail.inner_text("body")
+                m = re.search(r"\d{4}\.\d{2}\.\d{2}\s+\d{2}:\d{2}", body)
                 if m:
                     date = m.group(0)
             except:
                 pass
 
-            # 名前
+            # name
             name = "unknown"
-
             try:
                 name = await detail.locator("p.bd--prof__name").inner_text(timeout=3000)
                 name = clean_text(name)
             except:
                 pass
 
-            # フォールバック
             if name == "unknown":
                 try:
                     t = await detail.title()
@@ -138,9 +131,8 @@ async def scrape(page, context):
 
             print(f"取得: {title} / {name} / {date}")
 
-            # デバッグログ
             if name == "unknown":
-                print("⚠️ UNKNOWN DETECTED:", url)
+                print("⚠️ UNKNOWN:", url)
 
             items.append({
                 "title": title,
@@ -149,7 +141,7 @@ async def scrape(page, context):
                 "member": name
             })
 
-        except Exception as e:
+        except:
             print("⚠️ 取得失敗:", url)
 
         finally:
@@ -161,49 +153,49 @@ async def scrape(page, context):
 
     return items
 
-
 # --------------------------
-# 差分
+# diff
 # --------------------------
 def diff(new, old):
     old_urls = set(normalize_url(x["url"]) for x in old)
     return [x for x in new if normalize_url(x["url"]) not in old_urls]
 
+# --------------------------
+# 👇 重要：全再構築
+# --------------------------
+def rebuild_members(all_items):
+    print("🔄 メンバー別JSON再構築開始")
 
-# --------------------------
-# メンバー別保存（完全修正版）
-# --------------------------
-def save_by_member(items):
-    for item in items:
+    # 全削除
+    for f in os.listdir(MEMBER_DIR):
+        if f.endswith(".json"):
+            os.remove(os.path.join(MEMBER_DIR, f))
+
+    bucket = {}
+
+    for item in all_items:
         name = item["member"]
 
-        # 👇 unknownは保存しない
         if not name or name == "unknown":
-            print("⚠️ skip unknown:", item["url"])
             continue
 
+        bucket.setdefault(name, []).append(item)
+
+    for name, items in bucket.items():
         safe = name.replace(" ", "").replace("/", "_")
         path = os.path.join(MEMBER_DIR, f"{safe}.json")
 
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                data = json.load(f)
-        else:
-            data = []
-
-        # URLベース上書き
-        url_map = {normalize_url(x["url"]): x for x in data}
-        url_map[normalize_url(item["url"])] = item
-
-        new_data = list(url_map.values())
-        new_data = new_data[:MAX_ITEMS]
+        # URLで重複排除
+        url_map = {normalize_url(x["url"]): x for x in items}
+        data = list(url_map.values())[:MAX_ITEMS]
 
         with open(path, "w") as f:
-            json.dump(new_data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
+    print("✅ 再構築完了")
 
 # --------------------------
-# RSS生成
+# rss
 # --------------------------
 def generate_rss(items):
     rss_items = ""
@@ -240,20 +232,17 @@ def generate_rss(items):
     with open("rss.xml", "w") as f:
         f.write(rss)
 
-
 # --------------------------
-# メイン
+# main
 # --------------------------
 async def main():
     old_data = load_data()
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-
         context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"
+            user_agent="Mozilla/5.0"
         )
-
         page = await context.new_page()
 
         new_items = await scrape(page, context)
@@ -270,30 +259,27 @@ async def main():
 
         save_data(all_data)
 
-        if new_only:
-            save_by_member(new_only)
+        # 👇 ここが最重要
+        rebuild_members(all_data)
 
         generate_rss(all_data[:50])
 
         await browser.close()
 
-    print("✅ 完全版RSS作成完了")
-
+    print("✅ 完了")
 
 # --------------------------
-# 実行（ロック）
+# run
 # --------------------------
 if __name__ == "__main__":
     MAX_AGE = 30 * 60
 
     if os.path.exists(LOCK_FILE):
         age = time.time() - os.path.getmtime(LOCK_FILE)
-
         if age < MAX_AGE:
-            print("⛔ 他の処理が動いてるので停止")
+            print("⛔ 実行中")
             exit()
         else:
-            print("⚠️ 古いlock削除")
             os.remove(LOCK_FILE)
 
     with open(LOCK_FILE, "w") as f:

@@ -7,14 +7,6 @@ from playwright.async_api import async_playwright
 
 LOCK_FILE = "running.lock"
 
-# =========================
-# ▼ 設定
-# =========================
-MEMBER_ID = "48008"
-START_PAGE = 3
-END_PAGE = 11
-# =========================
-
 BASE_URL = "https://www.nogizaka46.com/s/n46/diary/MEMBER/list"
 OUTPUT_DIR = "members_archive_xml"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -121,15 +113,15 @@ def merge_page_range(old_min, old_max, new_min, new_max):
 
 
 # --------------------------
-# メイン
+# メイン処理（←ここが重要）
 # --------------------------
-async def main():
+async def main(member_id, start_page, end_page):
 
     id_to_name, name_to_roma = load_members()
 
-    MEMBER_NAME = id_to_name.get(MEMBER_ID)
+    MEMBER_NAME = id_to_name.get(member_id)
     if not MEMBER_NAME:
-        raise Exception(f"CSVに存在しないID: {MEMBER_ID}")
+        raise Exception(f"CSVに存在しないID: {member_id}")
 
     roma = name_to_roma[MEMBER_NAME]
     output_path = os.path.join(OUTPUT_DIR, f"{roma}_archive.xml")
@@ -141,7 +133,7 @@ async def main():
 
     # ページ範囲
     old_min, old_max = load_page_range(output_path)
-    final_min, final_max = merge_page_range(old_min, old_max, START_PAGE, END_PAGE)
+    final_min, final_max = merge_page_range(old_min, old_max, start_page, end_page)
 
     print(f"ページ範囲: {final_min}-{final_max}")
 
@@ -152,8 +144,8 @@ async def main():
         context = await browser.new_context()
         page = await context.new_page()
 
-        for pageno in range(START_PAGE, END_PAGE + 1):
-            url = f"{BASE_URL}?ct={MEMBER_ID}&page={pageno}"
+        for pageno in range(start_page, end_page + 1):
+            url = f"{BASE_URL}?ct={member_id}&page={pageno}"
             print("ページ:", url)
 
             await page.goto(url, timeout=60000)
@@ -232,7 +224,7 @@ async def main():
     all_items.sort(key=lambda x: parse_rss_pubdate(x["pub"]), reverse=True)
 
     # --------------------------
-    # RSS生成（★件数追加）
+    # RSS生成
     # --------------------------
     rss_items = ""
 
@@ -266,7 +258,7 @@ async def main():
 
 
 # --------------------------
-# ロック（安全版）
+# ロック処理付き単体実行
 # --------------------------
 if __name__ == "__main__":
     MAX_AGE = 30 * 60
@@ -285,7 +277,7 @@ if __name__ == "__main__":
         f.write(str(os.getpid()))
 
     try:
-        asyncio.run(main())
+        asyncio.run(main("48008", 3, 11))
     finally:
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
