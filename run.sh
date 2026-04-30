@@ -9,6 +9,11 @@ LOG_FILE="/Users/dig/nogi-rss/cron.log"
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # -----------------------
+# ログ初期化（これ追加）
+# -----------------------
+: > "$LOG_FILE"
+
+# -----------------------
 # 開始ログ
 # -----------------------
 echo "==============================" >> "$LOG_FILE"

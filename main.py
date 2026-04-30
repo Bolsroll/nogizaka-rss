@@ -25,6 +25,11 @@ if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
         json.dump([], f)
 
+# 👇 unknown.json削除（重要）
+unknown_path = os.path.join(MEMBER_DIR, "unknown.json")
+if os.path.exists(unknown_path):
+    os.remove(unknown_path)
+    print("🧹 unknown.json削除")
 
 # --------------------------
 # ユーティリティ
@@ -61,7 +66,7 @@ def save_data(data):
 
 
 # --------------------------
-# スクレイプ本体（デバッグ強化版）
+# スクレイプ本体（安定＋デバッグ）
 # --------------------------
 async def scrape(page, context):
     await page.goto(BASE_URL, timeout=60000)
@@ -90,13 +95,10 @@ async def scrape(page, context):
             detail = await context.new_page()
             await detail.goto(url, timeout=60000)
 
-            # 👇 重要：JS描画待ち
             await detail.wait_for_load_state("networkidle")
             await detail.wait_for_timeout(1500)
 
-            # ------------------
             # タイトル
-            # ------------------
             title = "no title"
             try:
                 title = await detail.title()
@@ -104,9 +106,7 @@ async def scrape(page, context):
             except:
                 pass
 
-            # ------------------
             # 日付
-            # ------------------
             date = "unknown"
             try:
                 body_text = await detail.inner_text("body")
@@ -116,9 +116,7 @@ async def scrape(page, context):
             except:
                 pass
 
-            # ------------------
             # 名前
-            # ------------------
             name = "unknown"
 
             try:
@@ -138,29 +136,11 @@ async def scrape(page, context):
                 except:
                     pass
 
-            # ------------------
-            # ログ（通常）
-            # ------------------
             print(f"取得: {title} / {name} / {date}")
 
-            # ------------------
-            # デバッグログ（unknown時）
-            # ------------------
+            # デバッグログ
             if name == "unknown":
-                print("⚠️ UNKNOWN DETECTED")
-                print("URL:", url)
-
-                try:
-                    html = await detail.content()
-
-                    print("HTML先頭:", html[:300])
-
-                    # Cloudflare判定
-                    if "Just a moment" in html or "Checking your browser" in html:
-                        print("🚫 Cloudflareブロック検知")
-
-                except:
-                    print("HTML取得失敗")
+                print("⚠️ UNKNOWN DETECTED:", url)
 
             items.append({
                 "title": title,
@@ -191,13 +171,18 @@ def diff(new, old):
 
 
 # --------------------------
-# メンバー別保存
+# メンバー別保存（完全修正版）
 # --------------------------
 def save_by_member(items):
     for item in items:
-        name = item["member"] or "unknown"
-        safe = name.replace(" ", "").replace("/", "_")
+        name = item["member"]
 
+        # 👇 unknownは保存しない
+        if not name or name == "unknown":
+            print("⚠️ skip unknown:", item["url"])
+            continue
+
+        safe = name.replace(" ", "").replace("/", "_")
         path = os.path.join(MEMBER_DIR, f"{safe}.json")
 
         if os.path.exists(path):
@@ -206,16 +191,15 @@ def save_by_member(items):
         else:
             data = []
 
-        urls = set(normalize_url(x["url"]) for x in data)
+        # URLベース上書き
+        url_map = {normalize_url(x["url"]): x for x in data}
+        url_map[normalize_url(item["url"])] = item
 
-        if normalize_url(item["url"]) in urls:
-            continue
-
-        data.insert(0, item)
-        data = data[:MAX_ITEMS]
+        new_data = list(url_map.values())
+        new_data = new_data[:MAX_ITEMS]
 
         with open(path, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(new_data, f, ensure_ascii=False, indent=2)
 
 
 # --------------------------
