@@ -25,7 +25,7 @@ if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
         json.dump([], f)
 
-# 👇 unknown.json削除
+# unknown削除
 unknown_path = os.path.join(MEMBER_DIR, "unknown.json")
 if os.path.exists(unknown_path):
     os.remove(unknown_path)
@@ -93,7 +93,6 @@ async def scrape(page, context):
             await detail.wait_for_load_state("networkidle")
             await detail.wait_for_timeout(1500)
 
-            # title
             title = "no title"
             try:
                 title = await detail.title()
@@ -101,7 +100,6 @@ async def scrape(page, context):
             except:
                 pass
 
-            # date
             date = "unknown"
             try:
                 body = await detail.inner_text("body")
@@ -111,7 +109,6 @@ async def scrape(page, context):
             except:
                 pass
 
-            # name
             name = "unknown"
             try:
                 name = await detail.locator("p.bd--prof__name").inner_text(timeout=3000)
@@ -154,19 +151,34 @@ async def scrape(page, context):
     return items
 
 # --------------------------
-# diff
+# merge（重要）
 # --------------------------
-def diff(new, old):
-    old_urls = set(normalize_url(x["url"]) for x in old)
-    return [x for x in new if normalize_url(x["url"]) not in old_urls]
+def merge_data(new_items, old_items):
+    merged = {}
+
+    # 旧データ
+    for item in old_items:
+        merged[normalize_url(item["url"])] = item
+
+    # 新データ（上書き）
+    for item in new_items:
+        merged[normalize_url(item["url"])] = item
+
+    # 日付順（新しい順）
+    def sort_key(x):
+        try:
+            return datetime.strptime(x["date"], "%Y.%m.%d %H:%M")
+        except:
+            return datetime.min
+
+    return sorted(merged.values(), key=sort_key, reverse=True)
 
 # --------------------------
-# 👇 重要：全再構築
+# rebuild（完全再構築）
 # --------------------------
 def rebuild_members(all_items):
     print("🔄 メンバー別JSON再構築開始")
 
-    # 全削除
     for f in os.listdir(MEMBER_DIR):
         if f.endswith(".json"):
             os.remove(os.path.join(MEMBER_DIR, f))
@@ -175,7 +187,6 @@ def rebuild_members(all_items):
 
     for item in all_items:
         name = item["member"]
-
         if not name or name == "unknown":
             continue
 
@@ -183,14 +194,18 @@ def rebuild_members(all_items):
 
     for name, items in bucket.items():
         safe = name.replace(" ", "").replace("/", "_")
+
+        # 新しい順
+        items_sorted = sorted(
+            items,
+            key=lambda x: datetime.strptime(x["date"], "%Y.%m.%d %H:%M") if x["date"] != "unknown" else datetime.min,
+            reverse=True
+        )
+
         path = os.path.join(MEMBER_DIR, f"{safe}.json")
 
-        # URLで重複排除
-        url_map = {normalize_url(x["url"]): x for x in items}
-        data = list(url_map.values())[:MAX_ITEMS]
-
         with open(path, "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(items_sorted[:MAX_ITEMS], f, ensure_ascii=False, indent=2)
 
     print("✅ 再構築完了")
 
@@ -240,26 +255,17 @@ async def main():
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0"
-        )
+        context = await browser.new_context(user_agent="Mozilla/5.0")
         page = await context.new_page()
 
         new_items = await scrape(page, context)
-        new_only = diff(new_items, old_data)
 
-        print("新規:", len(new_only))
+        print("取得件数:", len(new_items))
 
-        new_urls = set(normalize_url(n["url"]) for n in new_only)
-
-        all_data = new_only + [
-            x for x in old_data
-            if normalize_url(x["url"]) not in new_urls
-        ]
+        all_data = merge_data(new_items, old_data)
 
         save_data(all_data)
 
-        # 👇 ここが最重要
         rebuild_members(all_data)
 
         generate_rss(all_data[:50])
