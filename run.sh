@@ -4,12 +4,13 @@
 # 設定
 # -----------------------
 LOG_FILE="/Users/dig/nogi-rss/cron.log"
+PYTHON="/Library/Frameworks/Python.framework/Versions/3.11/bin/python3"
 
 # PATH問題対策
 export PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 # -----------------------
-# ログ初期化（これ追加）
+# ログ初期化（毎回上書き）
 # -----------------------
 : > "$LOG_FILE"
 
@@ -20,6 +21,13 @@ echo "==============================" >> "$LOG_FILE"
 echo "START: $(date)" >> "$LOG_FILE"
 
 # -----------------------
+# 環境ログ（重要）
+# -----------------------
+echo "[ENV] which python: $(which python3)" >> "$LOG_FILE"
+echo "[ENV] using python: $PYTHON" >> "$LOG_FILE"
+$PYTHON --version >> "$LOG_FILE" 2>&1
+
+# -----------------------
 # ディレクトリ移動
 # -----------------------
 cd /Users/dig/nogi-rss || {
@@ -28,13 +36,22 @@ cd /Users/dig/nogi-rss || {
 }
 
 # -----------------------
+# Playwright確認（自動修復）
+# -----------------------
+echo "[INIT] playwright install check" >> "$LOG_FILE"
+$PYTHON -m playwright install >> "$LOG_FILE" 2>&1
+
+# -----------------------
 # スクレイピング
 # -----------------------
 echo "[RUN] main.py" >> "$LOG_FILE"
-python3 main.py >> "$LOG_FILE" 2>&1
+$PYTHON main.py >> "$LOG_FILE" 2>&1
 
+# -----------------------
+# メンバーXML生成
+# -----------------------
 echo "[RUN] make_member_xml.py" >> "$LOG_FILE"
-python3 make_member_xml.py >> "$LOG_FILE" 2>&1
+$PYTHON make_member_xml.py >> "$LOG_FILE" 2>&1
 
 # -----------------------
 # Git処理
