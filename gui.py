@@ -1,29 +1,48 @@
 import tkinter as tk
 from tkinter import messagebox
 import json
-import asyncio
-from archive_to_xml_auto import main
+import os
+import sys
+import threading
 
-CONFIG_FILE = "config.json"
+# --------------------------
+# 実行ディレクトリ固定（.app対策）
+# --------------------------
+if getattr(sys, 'frozen', False):
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+os.chdir(BASE_DIR)
+
+# --------------------------
+# Playwrightパス固定（.app対策）
+# --------------------------
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 
 # --------------------------
-# 設定読み込み
+# 設定 読み込み
 # --------------------------
 def load_config():
-    try:
-        with open(CONFIG_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {
-            "member_id": "48008",
-            "start_page": 3,
-            "end_page": 11
-        }
+    if os.path.exists(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                return json.load(f)
+        except:
+            pass
+
+    return {
+        "member_id": "48008",
+        "start_page": "1",
+        "end_page": "3"
+    }
 
 
 # --------------------------
-# 設定保存
+# 設定 保存
 # --------------------------
 def save_config(data):
     with open(CONFIG_FILE, "w") as f:
@@ -31,52 +50,67 @@ def save_config(data):
 
 
 # --------------------------
-# 実行
+# 実行処理（別スレッド）
 # --------------------------
 def run_script():
-    try:
-        member_id = entry_member.get()
-        start = int(entry_start.get())
-        end = int(entry_end.get())
+    member_id = entry_member.get()
+    start_page = entry_start.get()
+    end_page = entry_end.get()
 
-        # 保存
-        save_config({
-            "member_id": member_id,
-            "start_page": start,
-            "end_page": end
-        })
+    # 入力チェック
+    if not member_id or not start_page.isdigit() or not end_page.isdigit():
+        messagebox.showerror("エラー", "入力値が不正です")
+        return
 
-        # 実行
-        asyncio.run(main(member_id, start, end))
+    save_config({
+        "member_id": member_id,
+        "start_page": start_page,
+        "end_page": end_page
+    })
 
-        messagebox.showinfo("完了", "処理が終わりました")
-    except Exception as e:
-        messagebox.showerror("エラー", str(e))
+    btn_run.config(state="disabled", text="Running...")
+
+    def task():
+        try:
+            import asyncio
+            from archive_to_xml_auto import main
+
+            asyncio.run(main(member_id, int(start_page), int(end_page)))
+
+            messagebox.showinfo("完了", "処理が完了しました")
+        except Exception as e:
+            messagebox.showerror("エラー", str(e))
+        finally:
+            btn_run.config(state="normal", text="Run")
+
+    threading.Thread(target=task).start()
 
 
 # --------------------------
 # GUI
 # --------------------------
-config = load_config()
-
 root = tk.Tk()
 root.title("Nogizaka Archive Tool")
+root.geometry("300x220")
 
-tk.Label(root, text="Member ID").grid(row=0, column=0)
+config = load_config()
+
+tk.Label(root, text="Member ID").pack()
 entry_member = tk.Entry(root)
 entry_member.insert(0, config["member_id"])
-entry_member.grid(row=0, column=1)
+entry_member.pack()
 
-tk.Label(root, text="Start Page").grid(row=1, column=0)
+tk.Label(root, text="Start Page").pack()
 entry_start = tk.Entry(root)
 entry_start.insert(0, config["start_page"])
-entry_start.grid(row=1, column=1)
+entry_start.pack()
 
-tk.Label(root, text="End Page").grid(row=2, column=0)
+tk.Label(root, text="End Page").pack()
 entry_end = tk.Entry(root)
 entry_end.insert(0, config["end_page"])
-entry_end.grid(row=2, column=1)
+entry_end.pack()
 
-tk.Button(root, text="Run", command=run_script).grid(row=3, column=0, columnspan=2)
+btn_run = tk.Button(root, text="Run", command=run_script)
+btn_run.pack(pady=15)
 
 root.mainloop()
